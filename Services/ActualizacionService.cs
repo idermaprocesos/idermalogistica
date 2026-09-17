@@ -19,7 +19,7 @@ public static class ActualizacionService
 {
     public const string Repositorio = "idermaprocesos/idermalogistica";
     private const string ApiLatest = "https://api.github.com/repos/idermaprocesos/idermalogistica/releases/latest";
-    private const string ApiLista = "https://api.github.com/repos/idermaprocesos/idermalogistica/releases?per_page=5";
+    private const string ApiLista = "https://api.github.com/repos/idermaprocesos/idermalogistica/releases?per_page=15";
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -34,7 +34,7 @@ public static class ActualizacionService
         {
             var version = typeof(App).Assembly.GetName().Version;
             return version is null || version == new Version(0, 0, 0, 0)
-                ? new Version(1, 1, 2, 0)
+                ? new Version(1, 2, 0, 0)
                 : version;
         }
     }
@@ -112,25 +112,48 @@ public static class ActualizacionService
                 "No hay versiones publicadas todavía en GitHub Releases.");
         }
 
-        var version = ParsearVersion(release.TagName);
-        var asset = ElegirInstalador(release.Assets);
-        if (asset is null || string.IsNullOrWhiteSpace(asset.BrowserDownloadUrl))
+        return Mapear(release);
+    }
+
+    public static async Task<ReleaseDisponible> ConsultarPenultimaAsync(CancellationToken cancelar = default)
+    {
+        var json = await DescargarTextoAsync(ApiLista, cancelar);
+        var lista = string.IsNullOrWhiteSpace(json)
+            ? []
+            : JsonSerializer.Deserialize<List<ReleaseGithub>>(json, JsonOptions) ?? [];
+
+        var publicadas = new List<ReleaseDisponible>();
+        foreach (var item in lista.Where(r => !r.Draft && !r.Prerelease && !string.IsNullOrWhiteSpace(r.TagName)))
         {
-            throw new InvalidOperationException(
-                $"La versión {release.TagName} no incluye un instalador (.exe) en GitHub Releases.");
+            try
+            {
+                publicadas.Add(Mapear(item));
+            }
+            catch
+            {
+            }
         }
 
-        return new ReleaseDisponible(
-            version,
-            release.TagName,
-            release.HtmlUrl ?? $"https://github.com/{Repositorio}/releases",
-            asset.Name ?? "IdermaCapilarApp.exe",
-            asset.BrowserDownloadUrl,
-            asset.Size);
+        publicadas = publicadas
+            .GroupBy(r => Normalizar(r.Version))
+            .Select(g => g.First())
+            .OrderByDescending(r => r.Version)
+            .ToList();
+
+        if (publicadas.Count < 2)
+        {
+            throw new InvalidOperationException(
+                "En GitHub Releases hace falta al menos dos versiones con instalador para restaurar la anterior.");
+        }
+
+        return publicadas[1];
     }
 
     public static bool HayActualizacion(ReleaseDisponible release) =>
         Normalizar(release.Version) > Normalizar(VersionInstalada);
+
+    public static bool MismaVersion(ReleaseDisponible release) =>
+        Normalizar(release.Version) == Normalizar(VersionInstalada);
 
     public static async Task<string> DescargarInstaladorAsync(
         ReleaseDisponible release,
@@ -166,9 +189,9 @@ public static class ActualizacionService
         return destino;
     }
 
-    public static CopiaSeguridadInfo PrepararCopiaYMarcar(ReleaseDisponible release)
+    public static CopiaSeguridadInfo PrepararCopiaYMarcar(ReleaseDisponible release, string origen = "antes-de-actualizar")
     {
-        var copia = App.Instance.Copias.Crear("antes-de-actualizar", forzarImagenes: true);
+        var copia = App.Instance.Copias.Crear(origen, forzarImagenes: true);
         var pendiente = new ActualizacionPendiente
         {
             CarpetaCopia = copia.Carpeta,
@@ -190,6 +213,32 @@ public static class ActualizacionService
         App.Instance.MainAppWindow?.CerrarParaActualizar();
     }
 
+    public static void LanzarRestauracionYCerrar(string rutaInstalador)
+    {
+        var script = Path.Combine(Path.GetTempPath(), "IdermaCapilar-restaurar.ps1");
+        File.WriteAllText(script, ScriptRestauracion());
+        try
+        {
+            var iniciado = Process.Start(new ProcessStartInfo
+            {
+                FileName = "powershell.exe",
+                Arguments = $"-NoProfile -ExecutionPolicy Bypass -File \"{script}\" -Instalador \"{rutaInstalador}\"",
+                UseShellExecute = true,
+                Verb = "runas"
+            });
+            if (iniciado is null)
+            {
+                throw new InvalidOperationException("No se pudo iniciar la restauración.");
+            }
+        }
+        catch (System.ComponentModel.Win32Exception)
+        {
+            throw new InvalidOperationException("Se canceló el permiso de administrador. La versión actual no se modificó.");
+        }
+
+        App.Instance.MainAppWindow?.CerrarParaActualizar();
+    }
+
     private static async Task<string?> DescargarTextoAsync(string url, CancellationToken cancelar)
     {
         using var respuesta = await Http.GetAsync(url, cancelar);
@@ -207,6 +256,60 @@ public static class ActualizacionService
         respuesta.EnsureSuccessStatusCode();
         return await respuesta.Content.ReadAsStringAsync(cancelar);
     }
+
+    private static ReleaseDisponible Mapear(ReleaseGithub release)
+    {
+        var version = ParsearVersion(release.TagName);
+        var asset = ElegirInstalador(release.Assets);
+        if (asset is null || string.IsNullOrWhiteSpace(asset.BrowserDownloadUrl))
+        {
+            throw new InvalidOperationException(
+                $"La versión {release.TagName} no incluye un instalador (.exe) en GitHub Releases.");
+        }
+
+        return new ReleaseDisponible(
+            version,
+            release.TagName,
+            release.HtmlUrl ?? $"https://github.com/{Repositorio}/releases",
+            asset.Name ?? "IdermaCapilarApp.exe",
+            asset.BrowserDownloadUrl,
+            asset.Size);
+    }
+
+    private static string ScriptRestauracion() =>
+        """
+        param([Parameter(Mandatory=$true)][string]$Instalador)
+        $ErrorActionPreference = 'Continue'
+        Start-Sleep -Seconds 3
+        Get-Process IdermaCapilarApp -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+        Start-Sleep -Seconds 1
+        $claves = @(
+            'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*',
+            'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*'
+        )
+        $apps = Get-ItemProperty $claves -ErrorAction SilentlyContinue |
+            Where-Object { $_.DisplayName -like 'Iderma Capilar App*' }
+        foreach ($app in $apps) {
+            $cmd = $app.QuietUninstallString
+            if ([string]::IsNullOrWhiteSpace($cmd)) { $cmd = $app.UninstallString }
+            if ([string]::IsNullOrWhiteSpace($cmd)) { continue }
+            if ($cmd -match '^"([^"]+)"(.*)$' -and $Matches[1] -like '*.exe') {
+                Start-Process -FilePath $Matches[1] -ArgumentList '/uninstall','/quiet','/norestart' -Wait -WindowStyle Hidden
+            }
+            elseif ($cmd -match 'MsiExec\.exe|msiexec') {
+                if ($app.PSChildName -match '^\{[0-9A-Fa-f-]+\}$') {
+                    Start-Process msiexec.exe -ArgumentList '/x', $app.PSChildName, '/qn', '/norestart' -Wait -WindowStyle Hidden
+                }
+                else {
+                    cmd.exe /c $cmd
+                }
+            }
+            else {
+                cmd.exe /c $cmd
+            }
+        }
+        Start-Process -FilePath $Instalador -Wait
+        """;
 
     private static AssetGithub? ElegirInstalador(IReadOnlyList<AssetGithub>? assets)
     {
@@ -266,7 +369,7 @@ public static class ActualizacionService
         {
             Timeout = TimeSpan.FromMinutes(15)
         };
-        cliente.DefaultRequestHeaders.UserAgent.ParseAdd("IdermaCapilarApp/1.1.2");
+        cliente.DefaultRequestHeaders.UserAgent.ParseAdd("IdermaCapilarApp/1.2.0");
         cliente.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
         cliente.DefaultRequestHeaders.TryAddWithoutValidation("X-GitHub-Api-Version", "2022-11-28");
         return cliente;

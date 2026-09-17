@@ -138,7 +138,7 @@ public static class TourTrabajadorNuevo
             null),
         new(
             "Actualizar programa",
-            "Consulta GitHub Releases, instala la versión nueva y al reabrir carga la copia de seguridad creada justo antes.",
+            "Busca una versión nueva en GitHub Releases o restaura la penúltima publicada. Antes se crea una copia y al reabrir se cargan esos datos.",
             "configuracion",
             ObjetivoTour.ElementoPagina,
             "TarjetaActualizacion"),
