@@ -3,7 +3,7 @@
   <Package
     Name="Iderma Capilar App"
     Manufacturer="Piero Zavala Ayala"
-    Version="1.2.0"
+    Version="1.3.0"
     Language="1034"
     UpgradeCode="b7e4c9a1-3f82-4d11-9e6a-8c2f1d0b4a77"
     Scope="perMachine">

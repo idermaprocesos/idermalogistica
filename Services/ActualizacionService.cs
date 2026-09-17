@@ -34,7 +34,7 @@ public static class ActualizacionService
         {
             var version = typeof(App).Assembly.GetName().Version;
             return version is null || version == new Version(0, 0, 0, 0)
-                ? new Version(1, 2, 0, 0)
+                ? new Version(1, 3, 0, 0)
                 : version;
         }
     }
@@ -189,18 +189,67 @@ public static class ActualizacionService
         return destino;
     }
 
-    public static CopiaSeguridadInfo PrepararCopiaYMarcar(ReleaseDisponible release, string origen = "antes-de-actualizar")
+    public static CopiaSeguridadInfo PrepararCopiaYMarcar(string version, string origen = "antes-de-actualizar")
     {
         var copia = App.Instance.Copias.Crear(origen, forzarImagenes: true);
         var pendiente = new ActualizacionPendiente
         {
             CarpetaCopia = copia.Carpeta,
-            Version = release.Version.ToString(),
+            Version = version,
             FechaUtc = DateTimeOffset.UtcNow
         };
         Directory.CreateDirectory(Path.GetDirectoryName(RutaPendiente())!);
         File.WriteAllText(RutaPendiente(), JsonSerializer.Serialize(pendiente, JsonOptions));
         return copia;
+    }
+
+    public static CopiaSeguridadInfo PrepararCopiaYMarcar(ReleaseDisponible release, string origen = "antes-de-actualizar") =>
+        PrepararCopiaYMarcar(release.Version.ToString(), origen);
+
+    public static void GuardarInstaladorPendiente(string ruta, ReleaseDisponible release, bool restaurar)
+    {
+        var pendiente = new InstaladorPendiente
+        {
+            Ruta = ruta,
+            Etiqueta = release.Etiqueta,
+            Version = release.Version.ToString(),
+            Restaurar = restaurar
+        };
+        Directory.CreateDirectory(Path.GetDirectoryName(RutaInstaladorPendiente())!);
+        File.WriteAllText(RutaInstaladorPendiente(), JsonSerializer.Serialize(pendiente, JsonOptions));
+    }
+
+    public static InstaladorPendiente? LeerInstaladorPendiente()
+    {
+        var meta = RutaInstaladorPendiente();
+        if (!File.Exists(meta))
+        {
+            return null;
+        }
+
+        try
+        {
+            var pendiente = JsonSerializer.Deserialize<InstaladorPendiente>(File.ReadAllText(meta), JsonOptions);
+            if (pendiente is null || string.IsNullOrWhiteSpace(pendiente.Ruta) || !File.Exists(pendiente.Ruta))
+            {
+                File.Delete(meta);
+                return null;
+            }
+
+            return pendiente;
+        }
+        catch
+        {
+            try
+            {
+                File.Delete(meta);
+            }
+            catch
+            {
+            }
+
+            return null;
+        }
     }
 
     public static void LanzarInstaladorYCerrar(string rutaInstalador)
@@ -357,6 +406,12 @@ public static class ActualizacionService
         return string.IsNullOrWhiteSpace(limpio) ? "IdermaCapilarApp-update.exe" : limpio;
     }
 
+    private static string RutaInstaladorPendiente() =>
+        Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "IdermaCapilar",
+            "instalador-pendiente.json");
+
     private static string RutaPendiente() =>
         Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
@@ -369,10 +424,18 @@ public static class ActualizacionService
         {
             Timeout = TimeSpan.FromMinutes(15)
         };
-        cliente.DefaultRequestHeaders.UserAgent.ParseAdd("IdermaCapilarApp/1.2.0");
+        cliente.DefaultRequestHeaders.UserAgent.ParseAdd("IdermaCapilarApp/1.3.0");
         cliente.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
         cliente.DefaultRequestHeaders.TryAddWithoutValidation("X-GitHub-Api-Version", "2022-11-28");
         return cliente;
+    }
+
+    public sealed class InstaladorPendiente
+    {
+        public string Ruta { get; set; } = string.Empty;
+        public string Etiqueta { get; set; } = string.Empty;
+        public string Version { get; set; } = string.Empty;
+        public bool Restaurar { get; set; }
     }
 
     private sealed class ActualizacionPendiente

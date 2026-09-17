@@ -70,7 +70,7 @@
                     </StackPanel>
                     <TextBlock
                         Opacity="0.72"
-                        Text="Consulta GitHub Releases, descarga el instalador y, antes de instalar, crea una copia de seguridad. Al abrir de nuevo se cargan esos datos (fichas, áreas, registro, fotos y recibos). Restaurar instala la penúltima versión publicada."
+                        Text="Busque una actualización, descárguela y luego pulse Instalar: se cerrará el programa, se creará una copia de seguridad y se abrirá el instalador. Al reabrir se cargan esos datos. Restaurar descarga la penúltima versión publicada; Instalar también aplica esa."
                         TextWrapping="Wrap" />
                     <TextBlock x:Name="TextoVersionActual" Opacity="0.78" TextWrapping="Wrap" />
                     <ProgressBar
@@ -86,12 +86,17 @@
                         <Button
                             x:Name="BotonActualizar"
                             Click="ActualizarPrograma_Click"
-                            Content="Buscar e instalar actualización"
-                            Style="{StaticResource AccentButtonStyle}" />
+                            Content="Buscar y descargar actualización" />
                         <Button
                             x:Name="BotonRestaurar"
                             Click="RestaurarVersionAnterior_Click"
                             Content="Restaurar versión anterior" />
+                        <Button
+                            x:Name="BotonInstalar"
+                            Click="InstalarActualizacion_Click"
+                            Content="Instalar"
+                            Style="{StaticResource AccentButtonStyle}"
+                            Visibility="Collapsed" />
                     </StackPanel>
                 </StackPanel>
             </Border>

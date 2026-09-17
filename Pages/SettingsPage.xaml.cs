@@ -31,18 +31,80 @@ public sealed partial class SettingsPage : Page
         ActualizarResumenMedicacion();
         TextoVersionActual.Text =
             $"Versión instalada: {ActualizacionService.TextoVersionInstalada}. Origen: github.com/{ActualizacionService.Repositorio}";
+        MostrarInstaladorPendiente();
     }
 
     private async void ActualizarPrograma_Click(object sender, RoutedEventArgs e) =>
-        await InstalarDesdeGithubAsync(buscarActualizacion: true);
+        await DescargarDesdeGithubAsync(buscarActualizacion: true);
 
     private async void RestaurarVersionAnterior_Click(object sender, RoutedEventArgs e) =>
-        await InstalarDesdeGithubAsync(buscarActualizacion: false);
+        await DescargarDesdeGithubAsync(buscarActualizacion: false);
 
-    private async Task InstalarDesdeGithubAsync(bool buscarActualizacion)
+    private async void InstalarActualizacion_Click(object sender, RoutedEventArgs e)
+    {
+        var paquete = ActualizacionService.LeerInstaladorPendiente();
+        if (paquete is null)
+        {
+            Mostrar("No hay un instalador descargado. Busque primero la actualización.", InfoBarSeverity.Warning);
+            MostrarInstaladorPendiente();
+            return;
+        }
+
+        var dialogo = new ContentDialog
+        {
+            Title = paquete.Restaurar ? "Restaurar versión anterior" : "Instalar actualización",
+            Content =
+                $"Se instalará {paquete.Etiqueta}.\n\n" +
+                "Se creará una copia de seguridad y se cerrará el programa para poder actualizar los archivos. " +
+                "Al abrir de nuevo se cargarán esos datos.",
+            PrimaryButtonText = "Instalar y cerrar",
+            CloseButtonText = "Cancelar",
+            DefaultButton = ContentDialogButton.Primary,
+            XamlRoot = XamlRoot
+        };
+        if (await dialogo.ShowAsync() != ContentDialogResult.Primary)
+        {
+            return;
+        }
+
+        BotonActualizar.IsEnabled = false;
+        BotonRestaurar.IsEnabled = false;
+        BotonInstalar.IsEnabled = false;
+        BarraActualizacion.Visibility = Visibility.Visible;
+        TextoProgresoActualizacion.Visibility = Visibility.Visible;
+        try
+        {
+            TextoProgresoActualizacion.Text = "Creando copia de seguridad…";
+            BarraActualizacion.Value = 20;
+            var origen = paquete.Restaurar ? "antes-de-restaurar" : "antes-de-actualizar";
+            var copia = await Task.Run(() => ActualizacionService.PrepararCopiaYMarcar(paquete.Version, origen));
+            CargarListaCopias();
+            BarraActualizacion.Value = 80;
+            TextoProgresoActualizacion.Text = "Cerrando el programa para instalar…";
+            if (paquete.Restaurar)
+            {
+                ActualizacionService.LanzarRestauracionYCerrar(paquete.Ruta);
+            }
+            else
+            {
+                ActualizacionService.LanzarInstaladorYCerrar(paquete.Ruta);
+            }
+        }
+        catch (Exception ex)
+        {
+            Mostrar($"No se pudo instalar: {ex.Message}", InfoBarSeverity.Error);
+            TextoProgresoActualizacion.Text = ex.Message;
+            BotonActualizar.IsEnabled = true;
+            BotonRestaurar.IsEnabled = true;
+            BotonInstalar.IsEnabled = true;
+        }
+    }
+
+    private async Task DescargarDesdeGithubAsync(bool buscarActualizacion)
     {
         BotonActualizar.IsEnabled = false;
         BotonRestaurar.IsEnabled = false;
+        BotonInstalar.IsEnabled = false;
         BarraActualizacion.Visibility = Visibility.Visible;
         TextoProgresoActualizacion.Visibility = Visibility.Visible;
         BarraActualizacion.Value = 0;
@@ -55,9 +117,14 @@ public sealed partial class SettingsPage : Page
                 TextoProgresoActualizacion.Text = p.Mensaje;
             });
 
+            ReleaseDisponible release;
+            string titulo;
+            string mensaje;
+            string confirmar;
+            bool restaurar;
             if (buscarActualizacion)
             {
-                var release = await ActualizacionService.ConsultarAsync();
+                release = await ActualizacionService.ConsultarAsync();
                 if (!ActualizacionService.HayActualizacion(release))
                 {
                     Mostrar(
@@ -68,46 +135,64 @@ public sealed partial class SettingsPage : Page
                     return;
                 }
 
-                await ConfirmarYDescargarAsync(
-                    release,
-                    "Actualizar programa",
+                titulo = "Descargar actualización";
+                mensaje =
                     $"Hay una versión nueva: {release.Etiqueta}{Tamano(release)}.\n\n" +
-                    "Antes de instalar se crea una copia de seguridad completa. " +
-                    "El instalador pedirá permisos y se cerrará esta ventana. " +
-                    "Al abrir de nuevo se cargarán automáticamente esos datos.",
-                    "Descargar e instalar",
-                    "antes-de-actualizar",
-                    desinstalarPrimero: false,
-                    progreso);
-                return;
+                    "Se descargará el instalador. Cuando termine, pulse Instalar: " +
+                    "entonces se cerrará el programa y se aplicará la actualización.";
+                confirmar = "Descargar";
+                restaurar = false;
             }
-
-            var anterior = await ActualizacionService.ConsultarPenultimaAsync();
-            if (ActualizacionService.MismaVersion(anterior))
+            else
             {
-                Mostrar(
-                    $"Ya está en la versión anterior publicada ({anterior.Etiqueta}).",
-                    InfoBarSeverity.Informational);
-                TextoProgresoActualizacion.Text = "No hay otra versión anterior que instalar.";
-                BarraActualizacion.Value = 100;
+                release = await ActualizacionService.ConsultarPenultimaAsync();
+                if (ActualizacionService.MismaVersion(release))
+                {
+                    Mostrar(
+                        $"Ya está en la versión anterior publicada ({release.Etiqueta}).",
+                        InfoBarSeverity.Informational);
+                    TextoProgresoActualizacion.Text = "No hay otra versión anterior que instalar.";
+                    BarraActualizacion.Value = 100;
+                    return;
+                }
+
+                titulo = "Descargar versión anterior";
+                mensaje =
+                    $"Se descargará la penúltima versión publicada: {release.Etiqueta}{Tamano(release)}.\n\n" +
+                    "Cuando termine, pulse Instalar. Se cerrará el programa, se desinstalará la versión actual " +
+                    "(los datos en AppData se quedan) y se abrirá ese instalador.";
+                confirmar = "Descargar";
+                restaurar = true;
+            }
+
+            var dialogo = new ContentDialog
+            {
+                Title = titulo,
+                Content = mensaje,
+                PrimaryButtonText = confirmar,
+                CloseButtonText = "Cancelar",
+                DefaultButton = ContentDialogButton.Primary,
+                XamlRoot = XamlRoot
+            };
+            if (await dialogo.ShowAsync() != ContentDialogResult.Primary)
+            {
+                TextoProgresoActualizacion.Text = "Descarga cancelada.";
                 return;
             }
 
-            await ConfirmarYDescargarAsync(
-                anterior,
-                "Restaurar versión anterior",
-                $"Se instalará la penúltima versión publicada: {anterior.Etiqueta}{Tamano(anterior)}.\n\n" +
-                "Antes se crea una copia de seguridad completa. " +
-                "Hay que desinstalar la versión actual (los datos en AppData se quedan) " +
-                "y después se abre el instalador anterior. Se cerrará esta ventana.",
-                "Restaurar",
-                "antes-de-restaurar",
-                desinstalarPrimero: true,
-                progreso);
+            var ruta = await ActualizacionService.DescargarInstaladorAsync(release, progreso);
+            ActualizacionService.GuardarInstaladorPendiente(ruta, release, restaurar);
+            MostrarInstaladorPendiente();
+            BarraActualizacion.Value = 100;
+            TextoProgresoActualizacion.Text =
+                $"Descarga lista ({release.Etiqueta}). Pulse Instalar para cerrar el programa y aplicarla.";
+            Mostrar(
+                $"Se descargó {release.Etiqueta}. Pulse Instalar cuando quiera cerrar el programa y actualizar.",
+                InfoBarSeverity.Success);
         }
         catch (Exception ex)
         {
-            var verbo = buscarActualizacion ? "actualizar" : "restaurar";
+            var verbo = buscarActualizacion ? "descargar la actualización" : "descargar la versión anterior";
             Mostrar($"No se pudo {verbo}: {ex.Message}", InfoBarSeverity.Error);
             TextoProgresoActualizacion.Text = ex.Message;
         }
@@ -115,49 +200,30 @@ public sealed partial class SettingsPage : Page
         {
             BotonActualizar.IsEnabled = true;
             BotonRestaurar.IsEnabled = true;
+            MostrarInstaladorPendiente();
         }
     }
 
-    private async Task ConfirmarYDescargarAsync(
-        ReleaseDisponible release,
-        string titulo,
-        string mensaje,
-        string confirmar,
-        string origenCopia,
-        bool desinstalarPrimero,
-        IProgress<(double Porcentaje, string Mensaje)> progreso)
+    private void MostrarInstaladorPendiente()
     {
-        var dialogo = new ContentDialog
+        var paquete = ActualizacionService.LeerInstaladorPendiente();
+        if (paquete is null)
         {
-            Title = titulo,
-            Content = mensaje,
-            PrimaryButtonText = confirmar,
-            CloseButtonText = "Cancelar",
-            DefaultButton = ContentDialogButton.Primary,
-            XamlRoot = XamlRoot
-        };
-        if (await dialogo.ShowAsync() != ContentDialogResult.Primary)
-        {
-            TextoProgresoActualizacion.Text = "Operación cancelada.";
+            BotonInstalar.Visibility = Visibility.Collapsed;
             return;
         }
 
-        progreso.Report((8, "Creando copia de seguridad…"));
-        var copia = await Task.Run(() => ActualizacionService.PrepararCopiaYMarcar(release, origenCopia));
-        CargarListaCopias();
-        progreso.Report((12, $"Copia lista: {copia.Titulo}. Descargando instalador…"));
-
-        var ruta = await ActualizacionService.DescargarInstaladorAsync(release, progreso);
-        progreso.Report((96, desinstalarPrimero
-            ? "Preparando la restauración (se pedirá permiso de administrador)…"
-            : "Abriendo el instalador…"));
-        if (desinstalarPrimero)
+        BotonInstalar.Visibility = Visibility.Visible;
+        BotonInstalar.IsEnabled = true;
+        BotonInstalar.Content = $"Instalar {paquete.Etiqueta}";
+        BarraActualizacion.Visibility = Visibility.Visible;
+        TextoProgresoActualizacion.Visibility = Visibility.Visible;
+        BarraActualizacion.Value = 100;
+        if (string.IsNullOrWhiteSpace(TextoProgresoActualizacion.Text) ||
+            TextoProgresoActualizacion.Visibility != Visibility.Visible)
         {
-            ActualizacionService.LanzarRestauracionYCerrar(ruta);
-        }
-        else
-        {
-            ActualizacionService.LanzarInstaladorYCerrar(ruta);
+            TextoProgresoActualizacion.Text =
+                $"Hay un instalador listo ({paquete.Etiqueta}). Pulse Instalar para cerrar el programa y aplicarlo.";
         }
     }
 

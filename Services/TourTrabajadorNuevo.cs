@@ -138,7 +138,7 @@ public static class TourTrabajadorNuevo
             null),
         new(
             "Actualizar programa",
-            "Busca una versión nueva en GitHub Releases o restaura la penúltima publicada. Antes se crea una copia y al reabrir se cargan esos datos.",
+            "Busque y descargue una versión en GitHub Releases. Cuando esté lista, pulse Instalar: se cierra el programa y se aplica el cambio. Restaurar usa la penúltima publicada.",
             "configuracion",
             ObjetivoTour.ElementoPagina,
             "TarjetaActualizacion"),
