@@ -29,6 +29,76 @@ public sealed partial class SettingsPage : Page
         CargarPreferencias();
         CargarListaCopias();
         ActualizarResumenMedicacion();
+        TextoVersionActual.Text =
+            $"Versión instalada: {ActualizacionService.TextoVersionInstalada}. Origen: github.com/{ActualizacionService.Repositorio}";
+    }
+
+    private async void ActualizarPrograma_Click(object sender, RoutedEventArgs e)
+    {
+        BotonActualizar.IsEnabled = false;
+        BarraActualizacion.Visibility = Visibility.Visible;
+        TextoProgresoActualizacion.Visibility = Visibility.Visible;
+        BarraActualizacion.Value = 0;
+        TextoProgresoActualizacion.Text = "Consultando GitHub Releases…";
+        try
+        {
+            IProgress<(double Porcentaje, string Mensaje)> progreso = new Progress<(double Porcentaje, string Mensaje)>(p =>
+            {
+                BarraActualizacion.Value = p.Porcentaje;
+                TextoProgresoActualizacion.Text = p.Mensaje;
+            });
+
+            var release = await ActualizacionService.ConsultarAsync();
+            if (!ActualizacionService.HayActualizacion(release))
+            {
+                Mostrar(
+                    $"Ya tiene la última versión ({ActualizacionService.TextoVersionInstalada}).",
+                    InfoBarSeverity.Success);
+                TextoProgresoActualizacion.Text = "No hay una versión más reciente.";
+                BarraActualizacion.Value = 100;
+                return;
+            }
+
+            var tamano = release.TamanoBytes > 0
+                ? $" ({release.TamanoBytes / 1_048_576d:0.0} MB)"
+                : string.Empty;
+            var dialogo = new ContentDialog
+            {
+                Title = "Actualizar programa",
+                Content =
+                    $"Hay una versión nueva: {release.Etiqueta}{tamano}.\n\n" +
+                    "Antes de instalar se crea una copia de seguridad completa. " +
+                    "El instalador pedirá permisos y se cerrará esta ventana. " +
+                    "Al abrir de nuevo se cargarán automáticamente esos datos.",
+                PrimaryButtonText = "Descargar e instalar",
+                CloseButtonText = "Cancelar",
+                DefaultButton = ContentDialogButton.Primary,
+                XamlRoot = XamlRoot
+            };
+            if (await dialogo.ShowAsync() != ContentDialogResult.Primary)
+            {
+                TextoProgresoActualizacion.Text = "Actualización cancelada.";
+                return;
+            }
+
+            progreso.Report((8, "Creando copia de seguridad…"));
+            var copia = await Task.Run(() => ActualizacionService.PrepararCopiaYMarcar(release));
+            CargarListaCopias();
+            progreso.Report((12, $"Copia lista: {copia.Titulo}. Descargando instalador…"));
+
+            var ruta = await ActualizacionService.DescargarInstaladorAsync(release, progreso);
+            progreso.Report((96, "Abriendo el instalador…"));
+            ActualizacionService.LanzarInstaladorYCerrar(ruta);
+        }
+        catch (Exception ex)
+        {
+            Mostrar($"No se pudo actualizar: {ex.Message}", InfoBarSeverity.Error);
+            TextoProgresoActualizacion.Text = ex.Message;
+        }
+        finally
+        {
+            BotonActualizar.IsEnabled = true;
+        }
     }
 
     private void CargarAreas(Guid? seleccionar = null)
@@ -553,7 +623,7 @@ public sealed partial class SettingsPage : Page
 
         var selector = new FileSavePicker();
         VentanaHelper.AsociarSelector(selector);
-        selector.SuggestedStartLocation = PickerLocationId.DocumentsLibrary;
+        VentanaHelper.ConfigurarInicio(selector);
         selector.FileTypeChoices.Add("Archivo ZIP", [".zip"]);
         selector.SuggestedFileName = $"iderma-exportacion-{DateTime.Now:yyyyMMdd-HHmm}";
 
@@ -567,12 +637,7 @@ public sealed partial class SettingsPage : Page
         try
         {
             await Task.Run(() => ExportacionDatosService.CrearZip(temporal, opciones));
-            await using (var origen = File.OpenRead(temporal))
-            await using (var destino = await archivo.OpenStreamForWriteAsync())
-            {
-                destino.SetLength(0);
-                await origen.CopyToAsync(destino);
-            }
+            await ExcelUi.CopiarArchivoAsync(temporal, archivo);
 
             await ExcelUi.OfrecerAbrirAsync(XamlRoot, new ResultadoExportacion(archivo, ".zip"));
             Mostrar("Se exportó la información seleccionada.", InfoBarSeverity.Success);
@@ -600,7 +665,7 @@ public sealed partial class SettingsPage : Page
     {
         var selector = new FileSavePicker();
         VentanaHelper.AsociarSelector(selector);
-        selector.SuggestedStartLocation = PickerLocationId.DocumentsLibrary;
+        VentanaHelper.ConfigurarInicio(selector);
         selector.FileTypeChoices.Add("JSON", [".json"]);
         selector.SuggestedFileName = "fichas-tecnicas-iderma";
 
@@ -618,7 +683,7 @@ public sealed partial class SettingsPage : Page
     {
         var selector = new FileOpenPicker();
         VentanaHelper.AsociarSelector(selector);
-        selector.SuggestedStartLocation = PickerLocationId.DocumentsLibrary;
+        VentanaHelper.ConfigurarInicio(selector);
         selector.FileTypeFilter.Add(".json");
 
         var archivo = await selector.PickSingleFileAsync();
@@ -661,9 +726,16 @@ public sealed partial class SettingsPage : Page
 
     private async void PlantillaExcel_Click(object sender, RoutedEventArgs e)
     {
-        if (await ExcelUi.GuardarPlantillaAsync())
+        try
         {
-            Mostrar("Se guardó la plantilla de Excel.", InfoBarSeverity.Success);
+            if (await ExcelUi.GuardarPlantillaAsync())
+            {
+                Mostrar("Se guardó la plantilla de Excel.", InfoBarSeverity.Success);
+            }
+        }
+        catch (Exception ex)
+        {
+            Mostrar($"No se pudo descargar la plantilla: {ex.Message}", InfoBarSeverity.Error);
         }
     }
 
@@ -724,16 +796,23 @@ public sealed partial class SettingsPage : Page
 
     private async void PlantillaMedicacion_Click(object sender, RoutedEventArgs e)
     {
-        var resultado = await ExcelUi.GuardarExcelAsync(
-            "plantilla-medicacion-comun",
-            ExcelMedicacionComunService.CrearPlantilla);
-        if (resultado is null)
+        try
         {
-            return;
-        }
+            var resultado = await ExcelUi.GuardarExcelAsync(
+                "plantilla-medicacion-comun",
+                ExcelMedicacionComunService.CrearPlantilla);
+            if (resultado is null)
+            {
+                return;
+            }
 
-        Mostrar("Se guardó la plantilla de medicación común.", InfoBarSeverity.Success);
-        await ExcelUi.OfrecerAbrirAsync(XamlRoot, resultado);
+            Mostrar("Se guardó la plantilla de medicación común.", InfoBarSeverity.Success);
+            await ExcelUi.OfrecerAbrirAsync(XamlRoot, resultado);
+        }
+        catch (Exception ex)
+        {
+            Mostrar($"No se pudo descargar la plantilla: {ex.Message}", InfoBarSeverity.Error);
+        }
     }
 
     private async void ImportarMedicacion_Click(object sender, RoutedEventArgs e)

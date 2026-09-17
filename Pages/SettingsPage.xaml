@@ -13,7 +13,7 @@
                 <TextBlock Style="{StaticResource TituloPaginaStyle}" Text="Configuración" />
                 <TextBlock
                     Style="{StaticResource SubtituloPaginaStyle}"
-                    Text="Administre el autoguardado, la medicación común de recetas, los desplegables, el archivo de fichas y las copias de seguridad." />
+                    Text="Administre actualizaciones, autoguardado, medicación común, desplegables, el archivo de fichas y las copias de seguridad." />
             </StackPanel>
 
             <InfoBar
@@ -47,6 +47,48 @@
                         Click="IniciarTourTrabajador_Click"
                         Content="Iniciar recorrido guiado"
                         Style="{StaticResource AccentButtonStyle}" />
+                </StackPanel>
+            </Border>
+
+            <Border
+                x:Name="TarjetaActualizacion"
+                Padding="20"
+                CornerRadius="12">
+                <Border.Background>
+                    <SolidColorBrush Color="{ThemeResource CardBackgroundFillColorDefault}" />
+                </Border.Background>
+                <StackPanel Spacing="12">
+                    <StackPanel Orientation="Horizontal" Spacing="10">
+                        <FontIcon
+                            VerticalAlignment="Center"
+                            FontSize="20"
+                            Glyph="&#xE895;" />
+                        <TextBlock
+                            VerticalAlignment="Center"
+                            FontWeight="SemiBold"
+                            Text="Actualizar programa" />
+                    </StackPanel>
+                    <TextBlock
+                        Opacity="0.72"
+                        Text="Consulta GitHub Releases, descarga el instalador y, antes de instalar, crea una copia de seguridad. Al abrir la versión nueva se cargan esos datos (fichas, áreas, registro, fotos y recibos)."
+                        TextWrapping="Wrap" />
+                    <TextBlock x:Name="TextoVersionActual" Opacity="0.78" TextWrapping="Wrap" />
+                    <ProgressBar
+                        x:Name="BarraActualizacion"
+                        Maximum="100"
+                        Visibility="Collapsed" />
+                    <TextBlock
+                        x:Name="TextoProgresoActualizacion"
+                        Opacity="0.72"
+                        TextWrapping="Wrap"
+                        Visibility="Collapsed" />
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <Button
+                            x:Name="BotonActualizar"
+                            Click="ActualizarPrograma_Click"
+                            Content="Buscar e instalar actualización"
+                            Style="{StaticResource AccentButtonStyle}" />
+                    </StackPanel>
                 </StackPanel>
             </Border>
 

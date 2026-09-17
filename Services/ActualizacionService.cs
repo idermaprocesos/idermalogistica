@@ -1,0 +1,311 @@
+using System.Diagnostics;
+using System.Net.Http;
+using System.Net.Http.Headers;
+using System.Text.Json;
+using System.Text.Json.Serialization;
+using IdermaFichas.Models;
+
+namespace IdermaFichas.Services;
+
+public sealed record ReleaseDisponible(
+    Version Version,
+    string Etiqueta,
+    string UrlNotas,
+    string NombreArchivo,
+    string UrlDescarga,
+    long TamanoBytes);
+
+public static class ActualizacionService
+{
+    public const string Repositorio = "idermaprocesos/idermalogistica";
+    private const string ApiLatest = "https://api.github.com/repos/idermaprocesos/idermalogistica/releases/latest";
+    private const string ApiLista = "https://api.github.com/repos/idermaprocesos/idermalogistica/releases?per_page=5";
+
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        PropertyNameCaseInsensitive = true
+    };
+
+    private static readonly HttpClient Http = CrearCliente();
+
+    public static Version VersionInstalada
+    {
+        get
+        {
+            var version = typeof(App).Assembly.GetName().Version;
+            return version is null || version == new Version(0, 0, 0, 0)
+                ? new Version(1, 1, 2, 0)
+                : version;
+        }
+    }
+
+    public static string TextoVersionInstalada
+    {
+        get
+        {
+            var v = VersionInstalada;
+            return $"V{v.Major}.{v.Minor}.{v.Build}";
+        }
+    }
+
+    public static string AplicarCopiaTrasActualizacion()
+    {
+        var ruta = RutaPendiente();
+        if (!File.Exists(ruta))
+        {
+            return string.Empty;
+        }
+
+        try
+        {
+            var pendiente = JsonSerializer.Deserialize<ActualizacionPendiente>(File.ReadAllText(ruta), JsonOptions);
+            if (pendiente is null || string.IsNullOrWhiteSpace(pendiente.CarpetaCopia))
+            {
+                File.Delete(ruta);
+                return string.Empty;
+            }
+
+            if (Directory.Exists(pendiente.CarpetaCopia) || File.Exists(pendiente.CarpetaCopia))
+            {
+                App.Instance.Copias.Restaurar(pendiente.CarpetaCopia);
+            }
+
+            File.Delete(ruta);
+            return pendiente.CarpetaCopia;
+        }
+        catch
+        {
+            try
+            {
+                File.Delete(ruta);
+            }
+            catch
+            {
+            }
+
+            return string.Empty;
+        }
+    }
+
+    public static async Task<ReleaseDisponible> ConsultarAsync(CancellationToken cancelar = default)
+    {
+        var json = await DescargarTextoAsync(ApiLatest, cancelar);
+        ReleaseGithub? release = null;
+        if (!string.IsNullOrWhiteSpace(json))
+        {
+            release = JsonSerializer.Deserialize<ReleaseGithub>(json, JsonOptions);
+        }
+
+        if (release is null || string.IsNullOrWhiteSpace(release.TagName))
+        {
+            json = await DescargarTextoAsync(ApiLista, cancelar);
+            var lista = string.IsNullOrWhiteSpace(json)
+                ? []
+                : JsonSerializer.Deserialize<List<ReleaseGithub>>(json, JsonOptions) ?? [];
+            release = lista.FirstOrDefault(r => !r.Draft && !r.Prerelease)
+                      ?? lista.FirstOrDefault();
+        }
+
+        if (release is null)
+        {
+            throw new InvalidOperationException(
+                "No hay versiones publicadas todavía en GitHub Releases.");
+        }
+
+        var version = ParsearVersion(release.TagName);
+        var asset = ElegirInstalador(release.Assets);
+        if (asset is null || string.IsNullOrWhiteSpace(asset.BrowserDownloadUrl))
+        {
+            throw new InvalidOperationException(
+                $"La versión {release.TagName} no incluye un instalador (.exe) en GitHub Releases.");
+        }
+
+        return new ReleaseDisponible(
+            version,
+            release.TagName,
+            release.HtmlUrl ?? $"https://github.com/{Repositorio}/releases",
+            asset.Name ?? "IdermaCapilarApp.exe",
+            asset.BrowserDownloadUrl,
+            asset.Size);
+    }
+
+    public static bool HayActualizacion(ReleaseDisponible release) =>
+        Normalizar(release.Version) > Normalizar(VersionInstalada);
+
+    public static async Task<string> DescargarInstaladorAsync(
+        ReleaseDisponible release,
+        IProgress<(double Porcentaje, string Mensaje)>? progreso,
+        CancellationToken cancelar = default)
+    {
+        var carpeta = Path.Combine(Path.GetTempPath(), "IdermaCapilar-update");
+        Directory.CreateDirectory(carpeta);
+        var destino = Path.Combine(carpeta, SanitizarNombre(release.NombreArchivo));
+
+        progreso?.Report((5, "Descargando el instalador desde GitHub…"));
+        using var respuesta = await Http.GetAsync(release.UrlDescarga, HttpCompletionOption.ResponseHeadersRead, cancelar);
+        respuesta.EnsureSuccessStatusCode();
+
+        var total = respuesta.Content.Headers.ContentLength ?? release.TamanoBytes;
+        await using var origen = await respuesta.Content.ReadAsStreamAsync(cancelar);
+        await using var archivo = File.Create(destino);
+        var buffer = new byte[81_920];
+        long leidos = 0;
+        int n;
+        while ((n = await origen.ReadAsync(buffer, cancelar)) > 0)
+        {
+            await archivo.WriteAsync(buffer.AsMemory(0, n), cancelar);
+            leidos += n;
+            if (total > 0)
+            {
+                var pct = Math.Clamp(10 + 80.0 * leidos / total, 10, 90);
+                progreso?.Report((pct, $"Descargando… {leidos / 1_048_576d:0.0} / {total / 1_048_576d:0.0} MB"));
+            }
+        }
+
+        progreso?.Report((92, "Instalador listo."));
+        return destino;
+    }
+
+    public static CopiaSeguridadInfo PrepararCopiaYMarcar(ReleaseDisponible release)
+    {
+        var copia = App.Instance.Copias.Crear("antes-de-actualizar", forzarImagenes: true);
+        var pendiente = new ActualizacionPendiente
+        {
+            CarpetaCopia = copia.Carpeta,
+            Version = release.Version.ToString(),
+            FechaUtc = DateTimeOffset.UtcNow
+        };
+        Directory.CreateDirectory(Path.GetDirectoryName(RutaPendiente())!);
+        File.WriteAllText(RutaPendiente(), JsonSerializer.Serialize(pendiente, JsonOptions));
+        return copia;
+    }
+
+    public static void LanzarInstaladorYCerrar(string rutaInstalador)
+    {
+        Process.Start(new ProcessStartInfo
+        {
+            FileName = rutaInstalador,
+            UseShellExecute = true
+        });
+        App.Instance.MainAppWindow?.CerrarParaActualizar();
+    }
+
+    private static async Task<string?> DescargarTextoAsync(string url, CancellationToken cancelar)
+    {
+        using var respuesta = await Http.GetAsync(url, cancelar);
+        if (respuesta.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            return null;
+        }
+
+        if ((int)respuesta.StatusCode == 403 || (int)respuesta.StatusCode == 429)
+        {
+            throw new InvalidOperationException(
+                "GitHub limitó las consultas. Espere un minuto e inténtelo de nuevo.");
+        }
+
+        respuesta.EnsureSuccessStatusCode();
+        return await respuesta.Content.ReadAsStringAsync(cancelar);
+    }
+
+    private static AssetGithub? ElegirInstalador(IReadOnlyList<AssetGithub>? assets)
+    {
+        if (assets is null || assets.Count == 0)
+        {
+            return null;
+        }
+
+        return assets.FirstOrDefault(a => Nombre(a).Contains("IdermaCapilarApp-V", StringComparison.OrdinalIgnoreCase)
+                                          && Nombre(a).EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+               ?? assets.FirstOrDefault(a => Nombre(a).Contains("instalador", StringComparison.OrdinalIgnoreCase)
+                                             && Nombre(a).EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+               ?? assets.FirstOrDefault(a => Nombre(a).EndsWith(".exe", StringComparison.OrdinalIgnoreCase)
+                                             && !Nombre(a).Contains("redist", StringComparison.OrdinalIgnoreCase)
+                                             && !Nombre(a).Contains("webview", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static string Nombre(AssetGithub asset) => asset.Name ?? string.Empty;
+
+    private static Version ParsearVersion(string etiqueta)
+    {
+        var limpio = etiqueta.Trim();
+        if (limpio.StartsWith("v", StringComparison.OrdinalIgnoreCase))
+        {
+            limpio = limpio[1..];
+        }
+
+        limpio = new string(limpio.TakeWhile(c => char.IsDigit(c) || c == '.').ToArray());
+        if (!Version.TryParse(limpio, out var version) &&
+            !Version.TryParse(limpio + ".0", out version))
+        {
+            throw new InvalidOperationException($"No se reconoció la versión «{etiqueta}».");
+        }
+
+        return Normalizar(version);
+    }
+
+    private static Version Normalizar(Version version) =>
+        new(version.Major, version.Minor, Math.Max(version.Build, 0), Math.Max(version.Revision, 0));
+
+    private static string SanitizarNombre(string nombre)
+    {
+        var invalido = Path.GetInvalidFileNameChars();
+        var limpio = new string(nombre.Where(c => !invalido.Contains(c)).ToArray());
+        return string.IsNullOrWhiteSpace(limpio) ? "IdermaCapilarApp-update.exe" : limpio;
+    }
+
+    private static string RutaPendiente() =>
+        Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "IdermaCapilar",
+            "actualizacion-pendiente.json");
+
+    private static HttpClient CrearCliente()
+    {
+        var cliente = new HttpClient
+        {
+            Timeout = TimeSpan.FromMinutes(15)
+        };
+        cliente.DefaultRequestHeaders.UserAgent.ParseAdd("IdermaCapilarApp/1.1.2");
+        cliente.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
+        cliente.DefaultRequestHeaders.TryAddWithoutValidation("X-GitHub-Api-Version", "2022-11-28");
+        return cliente;
+    }
+
+    private sealed class ActualizacionPendiente
+    {
+        public string CarpetaCopia { get; set; } = string.Empty;
+        public string Version { get; set; } = string.Empty;
+        public DateTimeOffset FechaUtc { get; set; }
+    }
+
+    private sealed class ReleaseGithub
+    {
+        [JsonPropertyName("tag_name")]
+        public string TagName { get; set; } = string.Empty;
+
+        [JsonPropertyName("html_url")]
+        public string? HtmlUrl { get; set; }
+
+        [JsonPropertyName("draft")]
+        public bool Draft { get; set; }
+
+        [JsonPropertyName("prerelease")]
+        public bool Prerelease { get; set; }
+
+        [JsonPropertyName("assets")]
+        public List<AssetGithub> Assets { get; set; } = [];
+    }
+
+    private sealed class AssetGithub
+    {
+        [JsonPropertyName("name")]
+        public string? Name { get; set; }
+
+        [JsonPropertyName("browser_download_url")]
+        public string? BrowserDownloadUrl { get; set; }
+
+        [JsonPropertyName("size")]
+        public long Size { get; set; }
+    }
+}

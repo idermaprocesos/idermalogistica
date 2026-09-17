@@ -16,7 +16,7 @@ public sealed class BackupService
         "IdermaCapilar",
         "copias");
 
-    public CopiaSeguridadInfo Crear(string origen)
+    public CopiaSeguridadInfo Crear(string origen, bool forzarImagenes = false)
     {
         lock (App.Instance.Repositorio.SyncRoot)
         {
@@ -35,7 +35,7 @@ public sealed class BackupService
             CopiarSiExiste(App.Instance.Registro.RutaArchivo, Path.Combine(destino, "registro-ingresos.json"));
             CopiarSiExiste(App.Instance.HistorialPrecios.RutaArchivo, Path.Combine(destino, "historial-precios.json"));
 
-            var incluyeImagenes = preferencias.CopiasIncluyenImagenes;
+            var incluyeImagenes = forzarImagenes || preferencias.CopiasIncluyenImagenes;
             if (incluyeImagenes && Directory.Exists(ImagenFichaService.Carpeta))
             {
                 CopiarDirectorio(ImagenFichaService.Carpeta, Path.Combine(destino, "imagenes-fichas"));

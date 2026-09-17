@@ -75,6 +75,8 @@ public partial class App : Application
             PersonalMedico = new PersonalMedicoRepository();
             PersonalMedico.Cargar();
         }
+
+        ActualizacionService.AplicarCopiaTrasActualizacion();
     }
 
     public static App Instance => (App)Current;

@@ -20,7 +20,7 @@ public static class ExcelUi
     {
         var selector = new FileOpenPicker();
         VentanaHelper.AsociarSelector(selector);
-        selector.SuggestedStartLocation = PickerLocationId.DocumentsLibrary;
+        VentanaHelper.ConfigurarInicio(selector);
         selector.FileTypeFilter.Add(".xlsx");
 
         var archivo = await selector.PickSingleFileAsync();
@@ -57,7 +57,7 @@ public static class ExcelUi
     {
         var selector = new FileSavePicker();
         VentanaHelper.AsociarSelector(selector);
-        selector.SuggestedStartLocation = PickerLocationId.DocumentsLibrary;
+        VentanaHelper.ConfigurarInicio(selector);
         selector.FileTypeChoices.Add("PDF", [".pdf"]);
         selector.SuggestedFileName = nombreSugerido;
         return await selector.PickSaveFileAsync();
@@ -65,19 +65,18 @@ public static class ExcelUi
 
     public static async Task<ResultadoExportacion> CopiarPdfAsync(string rutaTemporal, StorageFile archivo)
     {
-        await using (var origen = File.OpenRead(rutaTemporal))
-        await using (var destino = await archivo.OpenStreamForWriteAsync())
+        try
         {
-            destino.SetLength(0);
-            await origen.CopyToAsync(destino);
+            await CopiarArchivoAsync(rutaTemporal, archivo);
+            return new ResultadoExportacion(archivo, ".pdf");
         }
-
-        if (File.Exists(rutaTemporal))
+        finally
         {
-            File.Delete(rutaTemporal);
+            if (File.Exists(rutaTemporal))
+            {
+                File.Delete(rutaTemporal);
+            }
         }
-
-        return new ResultadoExportacion(archivo, ".pdf");
     }
 
     public static Task<ResultadoExportacion?> GuardarExcelAsync(string nombreSugerido, Action<string> escribir) =>
@@ -87,7 +86,7 @@ public static class ExcelUi
     {
         var selector = new FileOpenPicker();
         VentanaHelper.AsociarSelector(selector);
-        selector.SuggestedStartLocation = PickerLocationId.DocumentsLibrary;
+        VentanaHelper.ConfigurarInicio(selector);
         selector.FileTypeFilter.Add(".xlsx");
 
         var archivo = await selector.PickSingleFileAsync();
@@ -106,33 +105,8 @@ public static class ExcelUi
         return temporal;
     }
 
-    public static async Task<bool> GuardarPlantillaAsync()
-    {
-        var selector = new FileSavePicker();
-        VentanaHelper.AsociarSelector(selector);
-        selector.SuggestedStartLocation = PickerLocationId.DocumentsLibrary;
-        selector.FileTypeChoices.Add("Excel", [".xlsx"]);
-        selector.SuggestedFileName = "plantilla-fichas-iderma";
-
-        var archivo = await selector.PickSaveFileAsync();
-        if (archivo is null)
-        {
-            return false;
-        }
-
-        var temporal = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}.xlsx");
-        ExcelFichaService.CrearPlantilla(temporal);
-
-        await using (var origen = File.OpenRead(temporal))
-        await using (var destino = await archivo.OpenStreamForWriteAsync())
-        {
-            destino.SetLength(0);
-            await origen.CopyToAsync(destino);
-        }
-
-        File.Delete(temporal);
-        return true;
-    }
+    public static async Task<bool> GuardarPlantillaAsync() =>
+        await GuardarExcelAsync("plantilla-fichas-iderma", ExcelFichaService.CrearPlantilla) is not null;
 
     public static Task<ResultadoExportacion?> ExportarFichaAsync(FichaTecnica ficha) =>
         GuardarDocumentoAsync(
@@ -241,7 +215,7 @@ public static class ExcelUi
     {
         var selector = new FileSavePicker();
         VentanaHelper.AsociarSelector(selector);
-        selector.SuggestedStartLocation = PickerLocationId.DocumentsLibrary;
+        VentanaHelper.ConfigurarInicio(selector);
         if (soloExcel)
         {
             selector.FileTypeChoices.Add("Excel", [".xlsx"]);
@@ -266,17 +240,53 @@ public static class ExcelUi
 
         var extension = archivo.FileType;
         var temporal = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}{extension}");
-        escribir(temporal, extension);
-
-        await using (var origen = File.OpenRead(temporal))
-        await using (var destino = await archivo.OpenStreamForWriteAsync())
+        try
         {
+            await Task.Run(() => escribir(temporal, extension));
+            await CopiarArchivoAsync(temporal, archivo);
+            return new ResultadoExportacion(archivo, extension);
+        }
+        finally
+        {
+            if (File.Exists(temporal))
+            {
+                try
+                {
+                    File.Delete(temporal);
+                }
+                catch
+                {
+                }
+            }
+        }
+    }
+
+    public static async Task CopiarArchivoAsync(string temporal, StorageFile archivo)
+    {
+        var aplazado = false;
+        try
+        {
+            CachedFileManager.DeferUpdates(archivo);
+            aplazado = true;
+        }
+        catch
+        {
+        }
+
+        try
+        {
+            await using var origen = File.OpenRead(temporal);
+            await using var destino = await archivo.OpenStreamForWriteAsync();
             destino.SetLength(0);
             await origen.CopyToAsync(destino);
         }
-
-        File.Delete(temporal);
-        return new ResultadoExportacion(archivo, extension);
+        finally
+        {
+            if (aplazado)
+            {
+                await CachedFileManager.CompleteUpdatesAsync(archivo);
+            }
+        }
     }
 
     private static bool EsPdf(string extension) =>

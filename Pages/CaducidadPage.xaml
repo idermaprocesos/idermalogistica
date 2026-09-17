@@ -18,7 +18,7 @@
         <Grid ColumnSpacing="16">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="260" />
+                <ColumnDefinition Width="280" />
             </Grid.ColumnDefinitions>
             <StackPanel Spacing="4">
                 <TextBlock x:Name="TituloPagina" Style="{StaticResource TituloPaginaStyle}" Text="Vencimientos" />

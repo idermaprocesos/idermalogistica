@@ -51,7 +51,11 @@ public static class ExcelMedicacionComunService
 
         IdermaMarca.EscribirPieTabla(hoja, ejemplo + 2, Encabezados.Length);
         hoja.SheetView.FreezeRows(fila);
-        hoja.Columns().AdjustToContents();
+        for (var i = 0; i < Encabezados.Length; i++)
+        {
+            hoja.Column(i + 1).Width = Math.Clamp(Encabezados[i].Length + 3, 14, 36);
+        }
+
         IdermaMarca.AplicarPropiedades(libro, "Medicación común · Iderma Capilar");
         libro.SaveAs(ruta);
     }

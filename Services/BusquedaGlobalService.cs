@@ -128,6 +128,7 @@ public static class BusquedaGlobalService
     private static readonly (string Titulo, string Subtitulo)[] Ajustes =
     [
         ("Autoguardado", "Intervalo y activación"),
+        ("Actualizar programa", "GitHub Releases y copias al reinstalar"),
         ("Copias de seguridad", "Fichas, registro, recibos e imágenes"),
         ("Áreas operativas", "Nombre, prefijo y formulario"),
         ("Desplegables de los formularios", "Categorías, unidades y listas"),

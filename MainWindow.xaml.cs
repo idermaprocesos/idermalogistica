@@ -801,6 +801,12 @@ public sealed partial class MainWindow : Window
         await Task.Delay(150);
     }
 
+    public void CerrarParaActualizar()
+    {
+        _cerrarConfirmado = true;
+        Close();
+    }
+
     private async void AppWindow_Closing(AppWindow sender, AppWindowClosingEventArgs args)
     {
         if (_cerrarConfirmado || NavFrame.Content is not IEdicionProducto edicion || !edicion.HayCambiosPendientes)

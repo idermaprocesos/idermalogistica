@@ -155,6 +155,10 @@ public sealed class FichaRepository
         PartidasInventario.Proximas(_fichas, dias)
             .OrderBy(a => a.Partida.FechaCaducidad);
 
+    public IEnumerable<AlertaCaducidad> PartidasProximasHasta(DateTimeOffset limite) =>
+        PartidasInventario.ProximasHasta(_fichas, limite)
+            .OrderBy(a => a.Partida.FechaCaducidad);
+
     public IEnumerable<FichaTecnica> ProximasAVencer(int dias = 30)
     {
         var limite = DateTimeOffset.Now.Date.AddDays(dias);

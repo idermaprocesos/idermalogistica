@@ -50,7 +50,11 @@ public static class ExcelFichaService
 
         IdermaMarca.EscribirPieTabla(hoja, ejemplo + 2, Encabezados.Length);
         hoja.SheetView.FreezeRows(fila);
-        hoja.Columns().AdjustToContents();
+        for (var i = 0; i < Encabezados.Length; i++)
+        {
+            hoja.Column(i + 1).Width = Math.Clamp(Encabezados[i].Length + 4, 12, 28);
+        }
+
         EscribirHojaPartidas(libro, [], "Use esta hoja o varias filas con el mismo código en Fichas para distintos vencimientos.");
         IdermaMarca.AplicarPropiedades(libro, "Plantilla de fichas técnicas · Iderma Capilar");
         libro.SaveAs(ruta);

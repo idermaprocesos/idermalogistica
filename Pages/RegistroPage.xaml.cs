@@ -942,7 +942,7 @@ public sealed partial class RegistroPage : Page
     {
         var selector = new FileOpenPicker();
         VentanaHelper.AsociarSelector(selector);
-        selector.SuggestedStartLocation = PickerLocationId.DocumentsLibrary;
+        VentanaHelper.ConfigurarInicio(selector);
         selector.FileTypeFilter.Add(".jpg");
         selector.FileTypeFilter.Add(".jpeg");
         selector.FileTypeFilter.Add(".png");

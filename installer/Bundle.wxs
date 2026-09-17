@@ -4,7 +4,7 @@
   <Bundle
     Name="Iderma Capilar App"
     Manufacturer="Piero Zavala Ayala"
-    Version="1.0.5"
+    Version="1.1.2"
     UpgradeCode="a1c4e8b2-7d93-4f20-8b15-6e9c0d3a5f18"
     IconSourceFile="..\img\logo.ico"
     Compressed="yes"

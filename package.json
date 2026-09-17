@@ -1,7 +1,7 @@
 {
   "name": "iderma-capilar-app",
   "productName": "Iderma Capilar App",
-  "version": "1.0.0",
+  "version": "1.1.2",
   "description": "Iderma Capilar App — paquete Microsoft Store",
   "scripts": {
     "dist:msix": "powershell -NoProfile -ExecutionPolicy Bypass -File ./publish-store.ps1"

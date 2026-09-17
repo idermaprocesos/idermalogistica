@@ -288,16 +288,23 @@ public sealed partial class EtiquetasPage : Page
 
     private async void Plantilla_Click(object sender, RoutedEventArgs e)
     {
-        var resultado = await ExcelUi.GuardarExcelAsync(
-            "plantilla-etiquetas-iderma",
-            ExcelEtiquetaService.CrearPlantilla);
-        if (resultado is null)
+        try
         {
-            return;
-        }
+            var resultado = await ExcelUi.GuardarExcelAsync(
+                "plantilla-etiquetas-iderma",
+                ExcelEtiquetaService.CrearPlantilla);
+            if (resultado is null)
+            {
+                return;
+            }
 
-        Mostrar("Se exportó la plantilla con los encabezados CÓDIGO, ÁREA, PRODUCTO y CANTIDAD.", InfoBarSeverity.Success);
-        await ExcelUi.OfrecerAbrirAsync(XamlRoot, resultado);
+            Mostrar("Se exportó la plantilla con los encabezados CÓDIGO, ÁREA, PRODUCTO y CANTIDAD.", InfoBarSeverity.Success);
+            await ExcelUi.OfrecerAbrirAsync(XamlRoot, resultado);
+        }
+        catch (Exception ex)
+        {
+            Mostrar($"No se pudo descargar la plantilla: {ex.Message}", InfoBarSeverity.Error);
+        }
     }
 
     private async void PruebaImpresion_Click(object sender, RoutedEventArgs e)

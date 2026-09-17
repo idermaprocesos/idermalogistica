@@ -137,6 +137,12 @@ public static class TourTrabajadorNuevo
             ObjetivoTour.ItemConfiguracion,
             null),
         new(
+            "Actualizar programa",
+            "Consulta GitHub Releases, instala la versión nueva y al reabrir carga la copia de seguridad creada justo antes.",
+            "configuracion",
+            ObjetivoTour.ElementoPagina,
+            "TarjetaActualizacion"),
+        new(
             "Autoguardado",
             "Si edita una ficha, se guarda sola a los 15 segundos. El intervalo extra es un respaldo. Déjelo activado en el día a día.",
             "configuracion",

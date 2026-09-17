@@ -38,6 +38,10 @@
     <DefineConstants>$(DefineConstants);DISABLE_XAML_GENERATED_MAIN</DefineConstants>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <Version>1.1.2</Version>
+    <AssemblyVersion>1.1.2.0</AssemblyVersion>
+    <FileVersion>1.1.2.0</FileVersion>
+    <InformationalVersion>1.1.2</InformationalVersion>
     <DefaultItemExcludes>$(DefaultItemExcludes);docs\**;installer\**</DefaultItemExcludes>
     <ApplicationIcon>img\logo.ico</ApplicationIcon>
   </PropertyGroup>

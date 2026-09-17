@@ -263,15 +263,18 @@ public static class PartidasInventario
     public static IEnumerable<AlertaCaducidad> Vencidas(IEnumerable<FichaTecnica> fichas) =>
         Alertas(fichas, p => p.Cantidad > Epsilon && p.EstaVencido);
 
-    public static IEnumerable<AlertaCaducidad> Proximas(IEnumerable<FichaTecnica> fichas, int dias)
+    public static IEnumerable<AlertaCaducidad> Proximas(IEnumerable<FichaTecnica> fichas, int dias) =>
+        ProximasHasta(fichas, DateTimeOffset.Now.Date.AddDays(dias));
+
+    public static IEnumerable<AlertaCaducidad> ProximasHasta(IEnumerable<FichaTecnica> fichas, DateTimeOffset limite)
     {
-        var limite = DateTimeOffset.Now.Date.AddDays(dias);
+        var tope = limite.Date;
         return Alertas(
             fichas,
             p => p.Cantidad > Epsilon
                  && p.FechaCaducidad.HasValue
                  && !p.EstaVencido
-                 && p.FechaCaducidad.Value.Date <= limite);
+                 && p.FechaCaducidad.Value.Date <= tope);
     }
 
     public static IEnumerable<string> NombresLote(FichaTecnica ficha)

@@ -565,9 +565,16 @@ public sealed partial class CatalogoPage : Page
 
     private async void Plantilla_Click(object sender, RoutedEventArgs e)
     {
-        if (await ExcelUi.GuardarPlantillaAsync())
+        try
         {
-            await Aviso("Plantilla Excel", "Se guardó la plantilla. Complete las filas e impórtela de nuevo.");
+            if (await ExcelUi.GuardarPlantillaAsync())
+            {
+                await Aviso("Plantilla Excel", "Se guardó la plantilla. Complete las filas e impórtela de nuevo.");
+            }
+        }
+        catch (Exception ex)
+        {
+            await Aviso("Plantilla Excel", $"No se pudo guardar la plantilla: {ex.Message}");
         }
     }
 

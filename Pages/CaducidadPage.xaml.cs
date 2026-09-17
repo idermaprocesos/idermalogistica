@@ -7,7 +7,21 @@ namespace IdermaFichas.Pages;
 
 public sealed partial class CaducidadPage : Page
 {
-    private static readonly int[] Horizontes = [30, 60, 90];
+    private static readonly OpcionHorizonte[] Horizontes =
+    [
+        OpcionHorizonte.Dias(7),
+        OpcionHorizonte.Dias(15),
+        OpcionHorizonte.Dias(30),
+        OpcionHorizonte.Dias(60),
+        OpcionHorizonte.Dias(90),
+        OpcionHorizonte.Meses(1),
+        OpcionHorizonte.Meses(3),
+        OpcionHorizonte.Meses(6),
+        OpcionHorizonte.Meses(9),
+        OpcionHorizonte.Meses(12)
+    ];
+
+    private const int IndicePorDefecto = 2;
     private Guid? _fichaNavegada;
     private bool _enfocarProximos;
     private bool _ajustandoHorizonte;
@@ -26,12 +40,7 @@ public sealed partial class CaducidadPage : Page
             _ => null
         };
         _enfocarProximos = e.Parameter is CaducidadNavegacion { Proximos: true };
-        ComboHorizonte.ItemsSource = new[]
-        {
-            "Próximos 30 días",
-            "Próximos 60 días",
-            "Próximos 90 días"
-        };
+        ComboHorizonte.ItemsSource = Horizontes.Select(h => h.Etiqueta).ToArray();
         _ajustandoHorizonte = true;
         ComboHorizonte.SelectedIndex = IndiceHorizonte(_fichaNavegada);
         _ajustandoHorizonte = false;
@@ -50,24 +59,29 @@ public sealed partial class CaducidadPage : Page
 
     private void Refrescar()
     {
-        var dias = ComboHorizonte.SelectedIndex is >= 0 and < 3
-            ? Horizontes[ComboHorizonte.SelectedIndex]
-            : 30;
-
+        var horizonte = HorizonteActual();
         var repo = App.Instance.Repositorio;
         var vencidos = repo.PartidasVencidas().ToList();
-        var proximos = repo.PartidasProximas(dias).ToList();
+        var proximos = repo.PartidasProximasHasta(horizonte.Limite).ToList();
 
         ListaVencidos.ItemsSource = vencidos;
         ListaProximos.ItemsSource = proximos;
         ConteoVencidos.Text = vencidos.Count.ToString();
         ConteoProximos.Text = proximos.Count.ToString();
-        DetalleHorizonte.Text = $"Caducan en los próximos {dias} días.";
+        DetalleHorizonte.Text = horizonte.Detalle;
         ResaltarFicha(vencidos, proximos);
         if (_enfocarProximos && proximos.Count > 0)
         {
             ListaProximos.ScrollIntoView(proximos[0]);
         }
+    }
+
+    private OpcionHorizonte HorizonteActual()
+    {
+        var indice = ComboHorizonte.SelectedIndex;
+        return indice is >= 0 && indice < Horizontes.Length
+            ? Horizontes[indice]
+            : Horizontes[IndicePorDefecto];
     }
 
     private void ResaltarFicha(List<AlertaCaducidad> vencidos, List<AlertaCaducidad> proximos)
@@ -95,22 +109,24 @@ public sealed partial class CaducidadPage : Page
     {
         if (fichaId is not Guid id)
         {
-            return 0;
+            return IndicePorDefecto;
         }
 
         var repo = App.Instance.Repositorio;
-        if (repo.PartidasVencidas().Any(a => a.Ficha.Id == id) ||
-            repo.PartidasProximas(30).Any(a => a.Ficha.Id == id))
+        if (repo.PartidasVencidas().Any(a => a.Ficha.Id == id))
         {
-            return 0;
+            return IndicePorDefecto;
         }
 
-        if (repo.PartidasProximas(60).Any(a => a.Ficha.Id == id))
+        foreach (var (horizonte, indice) in Horizontes.Select((h, i) => (h, i)).OrderBy(x => x.h.Limite))
         {
-            return 1;
+            if (repo.PartidasProximasHasta(horizonte.Limite).Any(a => a.Ficha.Id == id))
+            {
+                return indice;
+            }
         }
 
-        return 2;
+        return Horizontes.Length - 1;
     }
 
     private void Lista_ItemClick(object sender, ItemClickEventArgs e)
@@ -118,6 +134,25 @@ public sealed partial class CaducidadPage : Page
         if (e.ClickedItem is AlertaCaducidad alerta)
         {
             App.Instance.MainAppWindow?.IrAArea(alerta.Ficha.Area, alerta.Ficha.Id);
+        }
+    }
+
+    private readonly record struct OpcionHorizonte(string Etiqueta, string Detalle, bool PorMeses, int Valor)
+    {
+        public DateTimeOffset Limite => PorMeses
+            ? DateTimeOffset.Now.Date.AddMonths(Valor)
+            : DateTimeOffset.Now.Date.AddDays(Valor);
+
+        public static OpcionHorizonte Dias(int dias) =>
+            new($"Próximos {dias} días", $"Caducan en los próximos {dias} días.", false, dias);
+
+        public static OpcionHorizonte Meses(int meses)
+        {
+            var etiqueta = meses == 1 ? "Próximo mes" : $"Próximos {meses} meses";
+            var detalle = meses == 1
+                ? "Caducan en el próximo mes."
+                : $"Caducan en los próximos {meses} meses.";
+            return new(etiqueta, detalle, true, meses);
         }
     }
 }
