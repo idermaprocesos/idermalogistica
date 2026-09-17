@@ -1,0 +1,1593 @@
+using System.Collections.ObjectModel;
+using System.Runtime.InteropServices.WindowsRuntime;
+using System.Text.Json;
+using System.Text.Json.Serialization;
+using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Media.Imaging;
+using Microsoft.UI.Xaml.Navigation;
+using IdermaFichas.Helpers;
+using IdermaFichas.Models;
+using IdermaFichas.Services;
+using Windows.Storage.Pickers;
+
+namespace IdermaFichas.Pages;
+
+public sealed partial class AreaPage : Page, IEdicionProducto
+{
+    private static readonly JsonSerializerOptions JsonHuella = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        Converters = { new JsonStringEnumConverter(), new AreaIdJsonConverter() },
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
+    };
+
+    private Guid? _area;
+    private Guid? _fichaInicial;
+    private FichaTecnica? _enEdicion;
+    private string _huellaOriginal = string.Empty;
+    private string _huellaVigilada = string.Empty;
+    private bool _actualizandoLista;
+    private bool _actualizandoArea;
+    private bool _alertaSuciaVisible;
+    private bool _quitarImagen;
+    private readonly DispatcherTimer _relojSucio = new() { Interval = TimeSpan.FromMilliseconds(700) };
+    private readonly DispatcherTimer _relojBusqueda = new() { Interval = TimeSpan.FromMilliseconds(180) };
+    private readonly DispatcherTimer _relojGuardadoFondo = new() { Interval = TimeSpan.FromSeconds(15) };
+    private bool _guardandoEnFondo;
+    private double _existenciaAlAbrir;
+    private string _huellaPartidasAlAbrir = string.Empty;
+    private bool _actualizandoHistorialProveedor;
+    private bool _actualizandoCanalDato;
+    private readonly ObservableCollection<CaracteristicaProducto> _caracteristicas = [];
+    private readonly ObservableCollection<PartidaInventario> _partidas = [];
+
+    public AreaPage()
+    {
+        InitializeComponent();
+        _relojSucio.Tick += (_, _) => ActualizarAlertaCambios();
+        _relojGuardadoFondo.Tick += (_, _) => GuardarEnFondo();
+        _relojBusqueda.Tick += (_, _) =>
+        {
+            _relojBusqueda.Stop();
+            RefrescarLista(_enEdicion?.Id);
+        };
+        Loaded += (_, _) => _relojSucio.Start();
+        Unloaded += (_, _) =>
+        {
+            _relojSucio.Stop();
+            _relojBusqueda.Stop();
+            _relojGuardadoFondo.Stop();
+        };
+    }
+
+    private readonly HashSet<Guid> _marcadas = [];
+    private List<FichaListaItem> FichasVisibles { get; set; } = [];
+    private int _anclaSeleccion = -1;
+    private bool _modoSeleccionar;
+
+    protected override void OnNavigatedTo(NavigationEventArgs e)
+    {
+        if (e.Parameter is AreaNavegacion navegacion)
+        {
+            _area = navegacion.AreaId;
+            _fichaInicial = navegacion.FichaId;
+        }
+        else
+        {
+            _area = e.Parameter is Guid id ? id : AreasOperativas.IdClinica;
+            _fichaInicial = null;
+        }
+
+        TituloArea.Text = Catalogos.Titulo(_area);
+        DescripcionArea.Text = Catalogos.Descripcion(_area);
+        ComboOrden.ItemsSource = OrdenFichas.Opciones.Select(o => o.Texto).ToList();
+        ComboOrden.SelectedIndex = OrdenFichas.IndicePredeterminado;
+
+        ComboCategoria.ItemsSource = Catalogos.Obtener(_area, Catalogos.CampoCategorias);
+        ComboUnidad.ItemsSource = Catalogos.Obtener(_area, Catalogos.CampoUnidades);
+        ComboEstadoFisico.ItemsSource = Catalogos.Obtener(_area, Catalogos.CampoEstados);
+        ComboPresentacion.ItemsSource = Catalogos.Obtener(_area, Catalogos.CampoPresentaciones);
+        ComboVidaUtil.ItemsSource = Catalogos.Obtener(_area, Catalogos.CampoVidasUtil);
+        ComboPais.ItemsSource = Catalogos.Obtener(_area, Catalogos.CampoPaises);
+        ComboOrigen.ItemsSource = Catalogos.Obtener(_area, Catalogos.CampoTiposOrigen);
+        ComboProcedimiento.ItemsSource = Catalogos.Obtener(_area, Catalogos.CampoProcedimientos);
+        ComboRiesgo.ItemsSource = Catalogos.Obtener(_area, Catalogos.CampoRiesgos);
+        ComboTemperatura.ItemsSource = Catalogos.Obtener(_area, Catalogos.CampoTemperaturas);
+        ComboPeligrosidad.ItemsSource = Catalogos.Obtener(_area, Catalogos.CampoPeligrosidad);
+        ComboCanalDato1.ItemsSource = CanalDatoProveedor.Opciones;
+        ComboCanalDato2.ItemsSource = CanalDatoProveedor.Opciones;
+
+        PivotArea.Header = Catalogos.Titulo(_area);
+        var plantilla = _area is null ? (AreaOperativa?)null : AreasOperativas.Plantilla(_area);
+        PanelClinica.Visibility = VisibleSi(plantilla == AreaOperativa.Clinica);
+        PanelOficina.Visibility = VisibleSi(plantilla == AreaOperativa.Oficina);
+        PanelLimpieza.Visibility = VisibleSi(plantilla == AreaOperativa.Limpieza);
+
+        CargarOpcionesArea();
+        CargarHistorialProveedor();
+
+        ListaFichas.ItemsSource = FichasVisibles;
+        ListaCaracteristicas.ItemsSource = _caracteristicas;
+        ListaPartidas.ItemsSource = _partidas;
+        RefrescarLista(_fichaInicial, recargarEditor: true);
+    }
+
+    private static Visibility VisibleSi(bool condicion) =>
+        condicion ? Visibility.Visible : Visibility.Collapsed;
+
+    private void CargarOpcionesArea()
+    {
+        _actualizandoArea = true;
+        ComboAreaProducto.ItemsSource = CrearOpcionesArea();
+        ComboAreaSeleccionadas.ItemsSource = CrearOpcionesArea();
+        SeleccionarEnCombo(ComboAreaProducto, _area);
+        SeleccionarEnCombo(ComboAreaSeleccionadas, _area);
+        _actualizandoArea = false;
+    }
+
+    private static List<OpcionAreaVista> CrearOpcionesArea()
+    {
+        var opciones = new List<OpcionAreaVista>
+        {
+            new("Sin área", null)
+        };
+        opciones.AddRange(AreasOperativas.Todas.Select(a => new OpcionAreaVista(a.Nombre, a.Id)));
+        return opciones;
+    }
+
+    private static void SeleccionarEnCombo(ComboBox combo, Guid? areaId)
+    {
+        if (combo.ItemsSource is not IEnumerable<OpcionAreaVista> opciones)
+        {
+            return;
+        }
+
+        combo.SelectedItem = opciones.FirstOrDefault(o => o.Id == areaId) ?? opciones.FirstOrDefault();
+    }
+
+    private Guid? AreaElegida() =>
+        ComboAreaProducto.SelectedItem is OpcionAreaVista opcion
+            ? opcion.Id
+            : _enEdicion?.Area ?? _area;
+
+    private void ComboAreaProducto_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_actualizandoArea || _enEdicion is null)
+        {
+            return;
+        }
+
+        var destino = AreaElegida();
+        DispatcherQueue.TryEnqueue(() => AplicarCambioAreaProducto(destino));
+    }
+
+    private void AplicarCambioAreaProducto(Guid? destino)
+    {
+        try
+        {
+            if (_enEdicion is null || Equals(_enEdicion.Area, destino))
+            {
+                return;
+            }
+
+            var anterior = _enEdicion.Area;
+            var codigoAnterior = _enEdicion.Codigo;
+            var codigoNuevo = App.Instance.Repositorio.PrepararMovimientoDeArea(_enEdicion, destino);
+            if (CajaCodigo is not null)
+            {
+                CajaCodigo.Text = codigoNuevo;
+            }
+
+            if (Equals(destino, _area))
+            {
+                ActualizarAlertaCambios();
+                return;
+            }
+
+            if (GuardarFichaActual(silencioso: false))
+            {
+                return;
+            }
+
+            if (_enEdicion is null)
+            {
+                return;
+            }
+
+            _enEdicion.Area = anterior;
+            _enEdicion.Codigo = codigoAnterior;
+            if (CajaCodigo is not null)
+            {
+                CajaCodigo.Text = codigoAnterior;
+            }
+
+            _actualizandoArea = true;
+            SeleccionarEnCombo(ComboAreaProducto, anterior);
+            _actualizandoArea = false;
+            ActualizarAlertaCambios();
+        }
+        catch (Exception ex)
+        {
+            Mostrar($"No se pudo cambiar el área: {ex.Message}", InfoBarSeverity.Error);
+        }
+    }
+
+    private void MoverSeleccionadas_Click(object sender, RoutedEventArgs e)
+    {
+        var destino = ComboAreaSeleccionadas.SelectedItem is OpcionAreaVista opcion ? opcion.Id : _area;
+        var seleccionadas = FichasVisibles.Where(f => f.EstaMarcada).Select(f => f.Ficha).ToList();
+        if (seleccionadas.Count == 0)
+        {
+            Mostrar("Marque al menos un producto para cambiarlo de área.", InfoBarSeverity.Warning);
+            return;
+        }
+
+        if (Equals(destino, _area) || (_area is null && destino is null))
+        {
+            Mostrar("Elija un área distinta a la actual.", InfoBarSeverity.Warning);
+            return;
+        }
+
+        var repo = App.Instance.Repositorio;
+        var prefijo = Catalogos.PrefijoCodigo(destino);
+        foreach (var ficha in seleccionadas)
+        {
+            repo.PrepararMovimientoDeArea(ficha, destino);
+            _marcadas.Remove(ficha.Id);
+        }
+
+        repo.GuardarFichas(seleccionadas);
+
+        FlyoutMoverArea.Hide();
+        if (_enEdicion is not null && seleccionadas.Any(f => f.Id == _enEdicion.Id))
+        {
+            var movida = seleccionadas.First(f => f.Id == _enEdicion.Id);
+            _enEdicion.Area = movida.Area;
+            _enEdicion.Codigo = movida.Codigo;
+            if (CajaCodigo is not null)
+            {
+                CajaCodigo.Text = movida.Codigo;
+            }
+        }
+
+        RefrescarLista(_enEdicion?.Id);
+        if (_enEdicion is not null && seleccionadas.Any(f => f.Id == _enEdicion.Id) && !Equals(_enEdicion.Area, _area))
+        {
+            OcultarFormulario();
+        }
+
+        Mostrar(
+            seleccionadas.Count == 1
+                ? $"El producto se movió a {Catalogos.Titulo(destino)} con código {seleccionadas[0].Codigo}."
+                : $"{seleccionadas.Count} productos se movieron a {Catalogos.Titulo(destino)} con códigos nuevos {prefijo}_…",
+            InfoBarSeverity.Success);
+    }
+
+    private void RefrescarLista(Guid? seleccionar = null, bool recargarEditor = false)
+    {
+        var filtro = CajaBusqueda.Text?.Trim() ?? string.Empty;
+        var indiceOrden = ComboOrden.SelectedIndex;
+        var criterio = indiceOrden >= 0 && indiceOrden < OrdenFichas.Opciones.Count
+            ? OrdenFichas.Opciones[indiceOrden].Criterio
+            : CriterioOrden.CodigoAz;
+        var resultado = OrdenFichas.Aplicar(
+                App.Instance.Repositorio.Buscar(filtro, _area, soloSinArea: _area is null),
+                criterio)
+            .ToList();
+
+        var lote = resultado.Select(ficha => new FichaListaItem
+        {
+            Ficha = ficha,
+            EstaMarcada = _marcadas.Contains(ficha.Id)
+        }).ToList();
+
+        var seleccion = seleccionar ?? _enEdicion?.Id;
+        FichasVisibles = lote;
+        ListaFichas.ItemsSource = FichasVisibles;
+        _anclaSeleccion = Math.Min(_anclaSeleccion, FichasVisibles.Count - 1);
+
+        if (seleccion is Guid id)
+        {
+            var coincide = lote.FirstOrDefault(f => f.Ficha.Id == id);
+            if (coincide is not null)
+            {
+                _actualizandoLista = true;
+                ListaFichas.SelectedItem = coincide;
+                _actualizandoLista = false;
+                if (_enEdicion is null || _enEdicion.Id != id || recargarEditor)
+                {
+                    MostrarFicha(coincide.Ficha);
+                }
+
+                return;
+            }
+        }
+
+        if (FichasVisibles.Count == 0)
+        {
+            OcultarFormulario();
+        }
+    }
+
+    private void CajaBusqueda_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        _relojBusqueda.Stop();
+        _relojBusqueda.Start();
+    }
+
+    private void ComboOrden_SelectionChanged(object sender, SelectionChangedEventArgs e) =>
+        RefrescarLista(_enEdicion?.Id);
+
+    private async void ListaFichas_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_actualizandoLista)
+        {
+            return;
+        }
+
+        if (ListaFichas.SelectedItem is not FichaListaItem item)
+        {
+            return;
+        }
+
+        if (SeleccionListaFichas.DebeMarcarSinAbrir(_modoSeleccionar))
+        {
+            SeleccionListaFichas.AplicarClic(FichasVisibles, _marcadas, item, ref _anclaSeleccion);
+            RestaurarSeleccion(_enEdicion?.Id ?? Guid.Empty);
+            return;
+        }
+
+        if (_enEdicion is not null && item.Ficha.Id != _enEdicion.Id && HayCambiosPendientes)
+        {
+            var destino = item;
+            RestaurarSeleccion(_enEdicion.Id);
+            if (!await ConfirmarSalidaAsync())
+            {
+                return;
+            }
+            _actualizandoLista = true;
+            ListaFichas.SelectedItem = destino;
+            _actualizandoLista = false;
+            MostrarFicha(destino.Ficha);
+            return;
+        }
+
+        MostrarFicha(item.Ficha);
+    }
+
+    private void ModoSeleccionar_Click(object sender, RoutedEventArgs e)
+    {
+        _modoSeleccionar = BotonModoSeleccionar.IsChecked == true;
+        TextoModoSeleccionar.Text = _modoSeleccionar
+            ? "Seleccionando (no abre ficha)"
+            : "Seleccionar productos";
+        AyudaSeleccion.Text = _modoSeleccionar
+            ? "Clic marca · Ctrl añade · Mayús rango"
+            : "Ctrl · Mayús";
+    }
+
+    private void SeleccionarTodas_Click(object sender, RoutedEventArgs e) =>
+        SeleccionListaFichas.SeleccionarTodas(FichasVisibles, _marcadas);
+
+    private void DeseleccionarTodas_Click(object sender, RoutedEventArgs e) =>
+        SeleccionListaFichas.DeseleccionarTodas(FichasVisibles, _marcadas);
+
+    private void SeleccionarCruzada_Click(object sender, RoutedEventArgs e) =>
+        SeleccionListaFichas.SeleccionarCruzada(FichasVisibles, _marcadas);
+
+    private void SeleccionarArmonia_Click(object sender, RoutedEventArgs e) =>
+        SeleccionListaFichas.SeleccionarArmonia(FichasVisibles, _marcadas);
+
+    private void ListaFichas_KeyDown(object sender, Microsoft.UI.Xaml.Input.KeyRoutedEventArgs e)
+    {
+        if (e.Key == Windows.System.VirtualKey.A && SeleccionListaFichas.CtrlIzquierdoPulsado)
+        {
+            SeleccionListaFichas.SeleccionarTodas(FichasVisibles, _marcadas);
+            e.Handled = true;
+        }
+        else if (e.Key == Windows.System.VirtualKey.Escape)
+        {
+            SeleccionListaFichas.DeseleccionarTodas(FichasVisibles, _marcadas);
+            e.Handled = true;
+        }
+    }
+
+    private void MarcaFicha_Tapped(object sender, Microsoft.UI.Xaml.Input.TappedRoutedEventArgs e) =>
+        e.Handled = true;
+
+    private void MarcaFicha_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not CheckBox caja)
+        {
+            return;
+        }
+
+        var item = caja.DataContext as FichaListaItem
+                   ?? FichasVisibles.FirstOrDefault(f => Equals(caja.Tag, f.Ficha.Id));
+        if (item is null)
+        {
+            return;
+        }
+
+        item.EstaMarcada = caja.IsChecked == true;
+        if (item.EstaMarcada)
+        {
+            _marcadas.Add(item.Ficha.Id);
+        }
+        else
+        {
+            _marcadas.Remove(item.Ficha.Id);
+        }
+    }
+
+    private async void ImportarExcel_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var resultado = await ExcelUi.ImportarAsync(_area);
+            if (resultado is null)
+            {
+                return;
+            }
+
+            RefrescarLista(_enEdicion?.Id);
+            Mostrar(resultado.Mensaje, InfoBarSeverity.Success);
+        }
+        catch (Exception ex)
+        {
+            Mostrar($"No se pudo importar el Excel: {ex.Message}", InfoBarSeverity.Error);
+        }
+    }
+
+    private void SiguienteCodigoLibre_Click(object sender, RoutedEventArgs e)
+    {
+        if (_enEdicion is null)
+        {
+            return;
+        }
+
+        var area = AreaElegida() ?? _area;
+        var codigo = App.Instance.Repositorio.SiguienteCodigo(area);
+        _enEdicion.Codigo = codigo;
+        CajaCodigo.Text = codigo;
+        ActualizarAlertaCambios();
+        Mostrar($"Código libre de esta lista: {codigo}.", InfoBarSeverity.Informational);
+    }
+
+    private void CajaIdentificacion_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        if (sender is not TextBox caja || string.IsNullOrEmpty(caja.Text))
+        {
+            return;
+        }
+
+        var mayusculas = caja == CajaCodigo
+            ? TextoIdentificacion.Codigo(caja.Text, recortar: false)
+            : TextoIdentificacion.Nombre(caja.Text, recortar: false);
+        if (string.Equals(caja.Text, mayusculas, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        var cursor = caja.SelectionStart;
+        caja.Text = mayusculas;
+        caja.SelectionStart = Math.Min(cursor, mayusculas.Length);
+        if (_enEdicion is null)
+        {
+            return;
+        }
+
+        if (caja == CajaCodigo)
+        {
+            _enEdicion.Codigo = mayusculas;
+        }
+        else
+        {
+            _enEdicion.Nombre = mayusculas;
+        }
+    }
+
+    private void CargarHistorialProveedor()
+    {
+        _actualizandoHistorialProveedor = true;
+        var historial = App.Instance.Repositorio.HistorialProveedores();
+        ComboHistorialProveedor.ItemsSource = historial;
+        ComboHistorialProveedor.SelectedItem = null;
+        ComboHistorialProveedor.PlaceholderText = historial.Count == 0
+            ? "Historial vacío: pulse Guardar en historial"
+            : "Historial: elija un proveedor para rellenar el nombre y los datos";
+        _actualizandoHistorialProveedor = false;
+    }
+
+    private void ComboHistorialProveedor_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_actualizandoHistorialProveedor || _enEdicion is null)
+        {
+            return;
+        }
+
+        if (ComboHistorialProveedor.SelectedItem is not ContactoProveedor contacto)
+        {
+            return;
+        }
+
+        contacto.AplicarA(_enEdicion);
+        CajaProveedor.Text = _enEdicion.Proveedor;
+        MostrarContactosProveedor();
+        ActualizarAlertaCambios();
+    }
+
+    private void ComboCanalDato_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_actualizandoCanalDato || _enEdicion is null)
+        {
+            return;
+        }
+
+        var indice = IndiceCanal(sender);
+        if (ComboCanal(indice).SelectedItem is not CanalDatoOpcion canal)
+        {
+            return;
+        }
+
+        AsignarCanalEnFicha(indice, canal.Id);
+        CajaDato(indice).PlaceholderText = canal.Placeholder;
+        ActualizarAlertaCambios();
+        _ = AbrirCanalDatoAsync(indice, avisarSiFalta: true);
+    }
+
+    private static int IndiceCanal(object sender) =>
+        int.TryParse((sender as FrameworkElement)?.Tag as string, out var indice) && indice is 1 or 2
+            ? indice
+            : 1;
+
+    private ComboBox ComboCanal(int indice) =>
+        indice == 2 ? ComboCanalDato2 : ComboCanalDato1;
+
+    private TextBox CajaDato(int indice) =>
+        indice == 2 ? CajaDatoProveedor2 : CajaDatoProveedor1;
+
+    private void AsignarCanalEnFicha(int indice, string canal)
+    {
+        if (_enEdicion is null)
+        {
+            return;
+        }
+
+        if (indice == 2)
+        {
+            _enEdicion.ContactoCanal2 = canal;
+        }
+        else
+        {
+            _enEdicion.ContactoCanal1 = canal;
+        }
+    }
+
+    private void MostrarContactosProveedor()
+    {
+        if (_enEdicion is null)
+        {
+            return;
+        }
+
+        _enEdicion.PrepararContactosProveedor();
+        CajaProveedor.Text = _enEdicion.Proveedor;
+        _actualizandoCanalDato = true;
+        PonerCanalYDato(1, _enEdicion.ContactoCanal1, _enEdicion.ContactoDato1);
+        PonerCanalYDato(2, _enEdicion.ContactoCanal2, _enEdicion.ContactoDato2);
+        _actualizandoCanalDato = false;
+    }
+
+    private void PonerCanalYDato(int indice, string? canalId, string? dato)
+    {
+        var canal = CanalDatoProveedor.De(canalId);
+        ComboCanal(indice).SelectedItem = CanalDatoProveedor.Opciones.First(o => o.Id == canal.Id);
+        CajaDato(indice).Text = dato ?? string.Empty;
+        CajaDato(indice).PlaceholderText = canal.Placeholder;
+        AsignarCanalEnFicha(indice, canal.Id);
+    }
+
+    private async Task AbrirCanalDatoAsync(int indice, bool avisarSiFalta)
+    {
+        if (_enEdicion is null)
+        {
+            return;
+        }
+
+        SincronizarEnfoque();
+        var canal = ComboCanal(indice).SelectedItem is CanalDatoOpcion elegido
+            ? elegido.Id
+            : CanalDatoProveedor.Web;
+        var dato = CajaDato(indice).Text?.Trim() ?? string.Empty;
+        var uri = CanalDatoProveedor.Uri(canal, dato);
+        if (uri is null)
+        {
+            if (avisarSiFalta)
+            {
+                var titulo = CanalDatoProveedor.De(canal).Titulo;
+                Mostrar(
+                    titulo == "WhatsApp"
+                        ? "Indique un celular peruano de 9 dígitos (empieza en 9) en el dato."
+                        : $"Escriba un {titulo.ToLowerInvariant()} válido en el dato.",
+                    InfoBarSeverity.Warning);
+            }
+
+            return;
+        }
+
+        if (!await Windows.System.Launcher.LaunchUriAsync(uri))
+        {
+            Mostrar($"No se pudo abrir {CanalDatoProveedor.De(canal).Titulo}.", InfoBarSeverity.Error);
+        }
+    }
+
+    private ContactoProveedor ContactoDesdeFormulario()
+    {
+        CopiarCanalDatoAlModelo();
+        return ContactoProveedor.Crear(
+            CajaProveedor.Text,
+            _enEdicion?.ContactoCanal1,
+            CajaDatoProveedor1.Text,
+            _enEdicion?.ContactoCanal2,
+            CajaDatoProveedor2.Text);
+    }
+
+    private void GuardarHistorialProveedor_Click(object sender, RoutedEventArgs e)
+    {
+        if (_enEdicion is null)
+        {
+            return;
+        }
+
+        SincronizarEnfoque();
+        var contacto = ContactoDesdeFormulario();
+        if (string.IsNullOrWhiteSpace(contacto.Nombre))
+        {
+            Mostrar("Escriba el nombre del proveedor para guardarlo en el historial.", InfoBarSeverity.Warning);
+            return;
+        }
+
+        if (!AlmacenHistorialProveedores.Agregar(contacto))
+        {
+            Mostrar("Ese proveedor ya está en el historial.", InfoBarSeverity.Informational);
+            return;
+        }
+
+        CargarHistorialProveedor();
+        Mostrar("Proveedor guardado en el historial. En otros productos puede elegirlo de la lista.", InfoBarSeverity.Success);
+    }
+
+    private async void BorrarHistorialProveedor_Click(object sender, RoutedEventArgs e)
+    {
+        var contacto = ContactoElegidoParaHistorial();
+        if (contacto is null || contacto.EstaVacio)
+        {
+            Mostrar("Elija un proveedor del historial o complete los datos que desea quitar.", InfoBarSeverity.Warning);
+            return;
+        }
+
+        var nombre = string.IsNullOrWhiteSpace(contacto.Nombre) ? contacto.Resumen : contacto.Nombre;
+        var dialogo = new ContentDialog
+        {
+            Title = "Borrar del historial",
+            Content = $"¿Quitar «{nombre}» del historial de proveedores? Los productos no se modifican.",
+            PrimaryButtonText = "Borrar",
+            CloseButtonText = "Cancelar",
+            DefaultButton = ContentDialogButton.Close,
+            XamlRoot = XamlRoot
+        };
+
+        if (await dialogo.ShowAsync() != ContentDialogResult.Primary)
+        {
+            return;
+        }
+
+        AlmacenHistorialProveedores.Eliminar(contacto);
+        CargarHistorialProveedor();
+        Mostrar("Proveedor quitado del historial.", InfoBarSeverity.Success);
+    }
+
+    private ContactoProveedor? ContactoElegidoParaHistorial()
+    {
+        if (ComboHistorialProveedor.SelectedItem is ContactoProveedor elegido)
+        {
+            return elegido;
+        }
+
+        SincronizarEnfoque();
+        return ContactoDesdeFormulario();
+    }
+
+    private async void NuevaFicha_Click(object sender, RoutedEventArgs e)
+    {
+        if (!await ConfirmarSalidaAsync())
+        {
+            return;
+        }
+
+        var nueva = new FichaTecnica
+        {
+            Area = _area,
+            Codigo = App.Instance.Repositorio.SiguienteCodigo(_area),
+            FechaAdquisicion = DateTimeOffset.Now
+        };
+
+        _actualizandoLista = true;
+        ListaFichas.SelectedItem = null;
+        _actualizandoLista = false;
+        MostrarFicha(nueva, esNueva: true);
+        BarraEstado.IsOpen = false;
+    }
+
+    private void MostrarFicha(FichaTecnica ficha, bool esNueva = false)
+    {
+        if (!esNueva && App.Instance.Repositorio.Obtener(ficha.Id) is { } actual)
+        {
+            ficha = actual;
+        }
+
+        _enEdicion = ficha.Clonar();
+        _quitarImagen = false;
+        if (esNueva)
+        {
+            _enEdicion.Id = ficha.Id;
+            _enEdicion.Codigo = ficha.Codigo;
+            _enEdicion.Area = ficha.Area;
+            _enEdicion.FechaAdquisicion = ficha.FechaAdquisicion;
+        }
+
+        Formulario.DataContext = _enEdicion;
+        CargarHistorialProveedor();
+        MostrarContactosProveedor();
+        CargarCaracteristicasEnEditor();
+        CargarPartidasEnEditor();
+        RecordarInventarioAbierto(_enEdicion);
+        _actualizandoArea = true;
+        SeleccionarEnCombo(ComboAreaProducto, _enEdicion.Area);
+        _actualizandoArea = false;
+        _huellaOriginal = Huella(_enEdicion);
+        _huellaVigilada = _huellaOriginal;
+        _alertaSuciaVisible = false;
+        _relojGuardadoFondo.Stop();
+        EstadoVacio.Visibility = Visibility.Collapsed;
+        ContenedorFormulario.Visibility = Visibility.Visible;
+        _ = ActualizarPreviewImagenAsync();
+    }
+
+    private void OcultarFormulario()
+    {
+        _enEdicion = null;
+        _huellaOriginal = string.Empty;
+        _alertaSuciaVisible = false;
+        _relojGuardadoFondo.Stop();
+        Formulario.DataContext = null;
+        _caracteristicas.Clear();
+        _partidas.Clear();
+        EstadoVacio.Visibility = Visibility.Visible;
+        ContenedorFormulario.Visibility = Visibility.Collapsed;
+        LimpiarPreviewImagen();
+    }
+
+    private async void AdjuntarImagen_Click(object sender, RoutedEventArgs e)
+    {
+        if (_enEdicion is null)
+        {
+            return;
+        }
+
+        var selector = new FileOpenPicker();
+        VentanaHelper.AsociarSelector(selector);
+        selector.SuggestedStartLocation = PickerLocationId.PicturesLibrary;
+        selector.FileTypeFilter.Add(".jpg");
+        selector.FileTypeFilter.Add(".jpeg");
+        selector.FileTypeFilter.Add(".png");
+        selector.FileTypeFilter.Add(".bmp");
+        selector.FileTypeFilter.Add(".webp");
+
+        var archivo = await selector.PickSingleFileAsync();
+        if (archivo is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await using var origen = await archivo.OpenStreamForReadAsync();
+            _enEdicion.RutaImagen = await ImagenFichaService.GuardarDesdeAsync(
+                _enEdicion.Id,
+                origen,
+                Path.GetExtension(archivo.Name));
+            _quitarImagen = false;
+            await ActualizarPreviewImagenAsync();
+            ActualizarAlertaCambios();
+            Mostrar("Imagen adjunta. Pulse Guardar ahora para conservarla en el catálogo.", InfoBarSeverity.Warning);
+        }
+        catch (Exception ex)
+        {
+            Mostrar($"No se pudo adjuntar la imagen: {ex.Message}", InfoBarSeverity.Error);
+        }
+    }
+
+    private void QuitarImagen_Click(object sender, RoutedEventArgs e)
+    {
+        if (_enEdicion is null)
+        {
+            return;
+        }
+
+        ImagenFichaService.DescartarPendiente(_enEdicion.Id);
+        _enEdicion.RutaImagen = string.Empty;
+        _quitarImagen = true;
+        LimpiarPreviewImagen();
+        ActualizarAlertaCambios();
+        Mostrar("Se quitó la imagen. Pulse Guardar ahora para confirmar el cambio.", InfoBarSeverity.Warning);
+    }
+
+    private async Task ActualizarPreviewImagenAsync()
+    {
+        var ruta = _quitarImagen ? null : ImagenFichaService.RutaParaVista(_enEdicion);
+        if (string.IsNullOrWhiteSpace(ruta))
+        {
+            LimpiarPreviewImagen();
+            return;
+        }
+
+        try
+        {
+            await using var archivo = File.OpenRead(ruta);
+            var bitmap = new BitmapImage();
+            await bitmap.SetSourceAsync(archivo.AsRandomAccessStream());
+            ImagenProducto.Source = bitmap;
+            ImagenProducto.Visibility = Visibility.Visible;
+            TextoSinImagen.Visibility = Visibility.Collapsed;
+            BotonQuitarImagen.Visibility = Visibility.Visible;
+        }
+        catch
+        {
+            LimpiarPreviewImagen();
+        }
+    }
+
+    private void LimpiarPreviewImagen()
+    {
+        ImagenProducto.Source = null;
+        ImagenProducto.Visibility = Visibility.Collapsed;
+        TextoSinImagen.Visibility = Visibility.Visible;
+        BotonQuitarImagen.Visibility = Visibility.Collapsed;
+    }
+
+    private void Guardar_Click(object sender, RoutedEventArgs e) => GuardarFichaActual(silencioso: false);
+
+    public bool HayCambiosPendientes =>
+        _enEdicion is not null && Huella(_enEdicion) != _huellaOriginal;
+
+    public bool AutoguardarSiEsPosible()
+    {
+        try
+        {
+            return GuardarFichaActual(silencioso: true, enFondo: true);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    public async Task<bool> ConfirmarSalidaAsync()
+    {
+        SincronizarEnfoque();
+        if (!HayCambiosPendientes)
+        {
+            return true;
+        }
+
+        var nombre = string.IsNullOrWhiteSpace(_enEdicion?.Nombre)
+            ? "esta ficha"
+            : $"«{_enEdicion.Nombre}»";
+
+        var dialogo = new ContentDialog
+        {
+            Title = "Cambios sin guardar",
+            Content = $"Ha editado {nombre} en {Catalogos.Titulo(_area)}. Guarde la información para no perderla.",
+            PrimaryButtonText = "Guardar",
+            SecondaryButtonText = "Descartar",
+            CloseButtonText = "Cancelar",
+            DefaultButton = ContentDialogButton.Primary,
+            XamlRoot = XamlRoot
+        };
+
+        var resultado = await dialogo.ShowAsync();
+        if (resultado == ContentDialogResult.Primary)
+        {
+            return GuardarFichaActual(silencioso: false);
+        }
+
+        if (resultado == ContentDialogResult.Secondary)
+        {
+            if (_enEdicion is not null)
+            {
+                ImagenFichaService.DescartarPendiente(_enEdicion.Id);
+            }
+
+            return true;
+        }
+
+        return false;
+    }
+
+    private bool GuardarFichaActual(bool silencioso, bool enFondo = false)
+    {
+        if (_enEdicion is null)
+        {
+            return false;
+        }
+
+        if (enFondo)
+        {
+            EmpujarBindingsSinQuitarFoco();
+            return HayCambiosPendientes && GuardarCopiaEnFondo();
+        }
+
+        SincronizarEnfoque();
+        CopiarPartidasAlModelo();
+        AplicarExistenciaDelFormularioSiCorresponde();
+        PartidasInventario.PrepararParaGuardar(_enEdicion);
+
+        if (string.IsNullOrWhiteSpace(_enEdicion.Nombre) || string.IsNullOrWhiteSpace(_enEdicion.Codigo))
+        {
+            Mostrar(
+                silencioso
+                    ? "Autoguardado pendiente: el código y el nombre son obligatorios."
+                    : "El código y el nombre son obligatorios.",
+                InfoBarSeverity.Error);
+            return false;
+        }
+
+        _enEdicion.Nombre = TextoIdentificacion.Nombre(_enEdicion.Nombre);
+        _enEdicion.Codigo = TextoIdentificacion.Codigo(_enEdicion.Codigo);
+        if (_enEdicion.Codigo.Length > 10)
+        {
+            _enEdicion.Codigo = _enEdicion.Codigo[..10];
+        }
+
+        CajaCodigo.Text = _enEdicion.Codigo;
+        if (CajaNombre is not null)
+        {
+            CajaNombre.Text = _enEdicion.Nombre;
+        }
+
+        _enEdicion.Area = AreaElegida();
+
+        if (App.Instance.Repositorio.CodigoEnUso(_enEdicion.Area, _enEdicion.Codigo, _enEdicion.Id))
+        {
+            Mostrar(
+                silencioso
+                    ? $"Autoguardado pendiente: el código {_enEdicion.Codigo} ya existe en {Catalogos.Titulo(_enEdicion.Area)}."
+                    : $"El código {_enEdicion.Codigo} ya existe en {Catalogos.Titulo(_enEdicion.Area)}.",
+                InfoBarSeverity.Error);
+            return false;
+        }
+
+        var conservarImagen = !_quitarImagen;
+        ImagenFichaService.Confirmar(_enEdicion.Id, conservarImagen);
+        _enEdicion.RutaImagen = ImagenFichaService.RutaEfectiva(_enEdicion) ?? string.Empty;
+        _quitarImagen = false;
+
+        App.Instance.Repositorio.GuardarFicha(_enEdicion);
+        CargarHistorialProveedor();
+        CargarPartidasEnEditor();
+        RecordarInventarioAbierto(_enEdicion);
+        _huellaOriginal = Huella(_enEdicion);
+        _huellaVigilada = _huellaOriginal;
+        _alertaSuciaVisible = false;
+        var id = _enEdicion.Id;
+        var areaDestino = _enEdicion.Area;
+        var sigueEnEstaLista = Equals(areaDestino, _area) || (_area is null && areaDestino is null);
+        RefrescarLista(sigueEnEstaLista ? id : null);
+        if (!sigueEnEstaLista)
+        {
+            OcultarFormulario();
+            var ventana = App.Instance.MainAppWindow;
+            DispatcherQueue.TryEnqueue(() => ventana?.IrAArea(areaDestino, id));
+            return true;
+        }
+
+        if (!silencioso)
+        {
+            Mostrar("Ficha técnica guardada.", InfoBarSeverity.Success);
+        }
+
+        return true;
+    }
+
+    private bool GuardarCopiaEnFondo()
+    {
+        if (_enEdicion is null)
+        {
+            return false;
+        }
+
+        var copia = _enEdicion.Clonar();
+        AplicarExistenciaDelFormularioSiCorresponde(copia);
+        PartidasInventario.PrepararParaGuardar(copia);
+        copia.Nombre = TextoIdentificacion.Nombre(copia.Nombre);
+        copia.Codigo = TextoIdentificacion.Codigo(copia.Codigo);
+        if (copia.Codigo.Length > 10)
+        {
+            copia.Codigo = copia.Codigo[..10];
+        }
+
+        copia.Area = AreaElegida();
+        if (string.IsNullOrWhiteSpace(copia.Nombre) || string.IsNullOrWhiteSpace(copia.Codigo))
+        {
+            return false;
+        }
+
+        if (App.Instance.Repositorio.CodigoEnUso(copia.Area, copia.Codigo, copia.Id))
+        {
+            return false;
+        }
+
+        ImagenFichaService.Confirmar(copia.Id, !_quitarImagen);
+        copia.RutaImagen = ImagenFichaService.RutaEfectiva(copia) ?? string.Empty;
+        App.Instance.Repositorio.GuardarFicha(copia);
+        RecordarInventarioAbierto(copia);
+        _huellaOriginal = Huella(_enEdicion);
+        _huellaVigilada = _huellaOriginal;
+        return true;
+    }
+
+    private void RestaurarSeleccion(Guid id)
+    {
+        var coincide = FichasVisibles.FirstOrDefault(f => f.Ficha.Id == id);
+        _actualizandoLista = true;
+        ListaFichas.SelectedItem = coincide;
+        _actualizandoLista = false;
+    }
+
+    private void GuardarEnFondo()
+    {
+        _relojGuardadoFondo.Stop();
+        if (_guardandoEnFondo || _enEdicion is null)
+        {
+            return;
+        }
+
+        _guardandoEnFondo = true;
+        try
+        {
+            AutoguardarSiEsPosible();
+            if (HayCambiosPendientes)
+            {
+                ProgramarGuardadoFondo();
+            }
+        }
+        finally
+        {
+            _guardandoEnFondo = false;
+        }
+    }
+
+    private void ProgramarGuardadoFondo()
+    {
+        if (_enEdicion is null)
+        {
+            return;
+        }
+
+        _relojGuardadoFondo.Stop();
+        _relojGuardadoFondo.Start();
+    }
+
+    private void ActualizarAlertaCambios()
+    {
+        if (_enEdicion is null)
+        {
+            _relojGuardadoFondo.Stop();
+            return;
+        }
+
+        EmpujarBindingsSinQuitarFoco();
+        var actual = Huella(_enEdicion);
+        var sucio = actual != _huellaOriginal;
+        if (sucio)
+        {
+            if (actual != _huellaVigilada)
+            {
+                _huellaVigilada = actual;
+                ProgramarGuardadoFondo();
+            }
+            else if (!_relojGuardadoFondo.IsEnabled)
+            {
+                ProgramarGuardadoFondo();
+            }
+        }
+        else
+        {
+            _huellaVigilada = actual;
+            _relojGuardadoFondo.Stop();
+        }
+        BotonGuardarAlerta.Visibility = sucio ? Visibility.Visible : Visibility.Collapsed;
+        if (!sucio)
+        {
+            if (_alertaSuciaVisible)
+            {
+                BarraEstado.IsOpen = false;
+                _alertaSuciaVisible = false;
+            }
+
+            return;
+        }
+
+        if (_alertaSuciaVisible && BarraEstado.IsOpen && BarraEstado.Severity == InfoBarSeverity.Warning)
+        {
+            return;
+        }
+
+        if (BarraEstado.IsOpen && BarraEstado.Severity == InfoBarSeverity.Error)
+        {
+            BotonGuardarAlerta.Visibility = Visibility.Visible;
+            return;
+        }
+
+        _alertaSuciaVisible = true;
+        Mostrar("Hay cambios sin guardar en este producto. Pulse Guardar ahora para conservarlos.", InfoBarSeverity.Warning);
+    }
+
+    private static string Huella(FichaTecnica ficha)
+    {
+        var copia = ficha.Clonar();
+        copia.FechaCreacion = default;
+        copia.FechaActualizacion = default;
+        return JsonSerializer.Serialize(copia, JsonHuella);
+    }
+
+    private void CopiarCanalDatoAlModelo()
+    {
+        if (_enEdicion is null)
+        {
+            return;
+        }
+
+        _enEdicion.ContactosProveedorDefinidos = true;
+        _enEdicion.Proveedor = CajaProveedor.Text?.Trim() ?? string.Empty;
+        _enEdicion.ContactoDato1 = CajaDatoProveedor1.Text?.Trim() ?? string.Empty;
+        _enEdicion.ContactoDato2 = CajaDatoProveedor2.Text?.Trim() ?? string.Empty;
+        _enEdicion.ContactoDato3 = string.Empty;
+        _enEdicion.ContactoCanal3 = CanalDatoProveedor.Web;
+        if (ComboCanalDato1.SelectedItem is CanalDatoOpcion c1)
+        {
+            _enEdicion.ContactoCanal1 = c1.Id;
+        }
+
+        if (ComboCanalDato2.SelectedItem is CanalDatoOpcion c2)
+        {
+            _enEdicion.ContactoCanal2 = c2.Id;
+        }
+
+        _enEdicion.SincronizarCamposProveedorLegados();
+    }
+
+    private void SincronizarEnfoque()
+    {
+        CopiarCaracteristicasAlModelo();
+        CopiarPartidasAlModelo();
+        CopiarCanalDatoAlModelo();
+        if (XamlRoot is null)
+        {
+            return;
+        }
+
+        ContenedorFormulario.Focus(FocusState.Programmatic);
+    }
+
+    private void EmpujarBindingsSinQuitarFoco()
+    {
+        CopiarCaracteristicasAlModelo();
+        CopiarPartidasAlModelo();
+        CopiarCanalDatoAlModelo();
+        if (Formulario is not null)
+        {
+            EmpujarBindings(Formulario);
+        }
+    }
+
+    private void EmpujarBindings(DependencyObject raiz)
+    {
+        switch (raiz)
+        {
+            case TextBox caja:
+                if (ElementoEnFoco(caja))
+                {
+                    AplicarTextoEnfocado(caja);
+                }
+                else
+                {
+                    caja.GetBindingExpression(TextBox.TextProperty)?.UpdateSource();
+                }
+
+                return;
+            case NumberBox numero:
+                if (!ElementoEnFoco(numero))
+                {
+                    numero.GetBindingExpression(NumberBox.ValueProperty)?.UpdateSource();
+                }
+
+                return;
+            case ComboBox combo:
+                if (!ElementoEnFoco(combo))
+                {
+                    combo.GetBindingExpression(ComboBox.TextProperty)?.UpdateSource();
+                    combo.GetBindingExpression(ComboBox.SelectedItemProperty)?.UpdateSource();
+                }
+
+                return;
+            case CalendarDatePicker fecha:
+                if (!ElementoEnFoco(fecha))
+                {
+                    fecha.GetBindingExpression(CalendarDatePicker.DateProperty)?.UpdateSource();
+                }
+
+                return;
+            case CheckBox check:
+                check.GetBindingExpression(CheckBox.IsCheckedProperty)?.UpdateSource();
+                return;
+            case ToggleSwitch interruptor:
+                interruptor.GetBindingExpression(ToggleSwitch.IsOnProperty)?.UpdateSource();
+                return;
+        }
+
+        var hijos = VisualTreeHelper.GetChildrenCount(raiz);
+        for (var i = 0; i < hijos; i++)
+        {
+            EmpujarBindings(VisualTreeHelper.GetChild(raiz, i));
+        }
+    }
+
+    private bool ElementoEnFoco(DependencyObject elemento)
+    {
+        if (XamlRoot is null)
+        {
+            return false;
+        }
+
+        var actual = FocusManager.GetFocusedElement(XamlRoot) as DependencyObject;
+        while (actual is not null)
+        {
+            if (ReferenceEquals(actual, elemento))
+            {
+                return true;
+            }
+
+            actual = VisualTreeHelper.GetParent(actual);
+        }
+
+        return false;
+    }
+
+    private static void AplicarTextoEnfocado(TextBox caja)
+    {
+        var ruta = caja.GetBindingExpression(TextBox.TextProperty)?.ParentBinding?.Path?.Path;
+        if (string.IsNullOrEmpty(ruta) || caja.DataContext is null)
+        {
+            return;
+        }
+
+        var propiedad = caja.DataContext.GetType().GetProperty(ruta);
+        if (propiedad is null || !propiedad.CanWrite || propiedad.PropertyType != typeof(string))
+        {
+            return;
+        }
+
+        var actual = (string?)propiedad.GetValue(caja.DataContext) ?? string.Empty;
+        var texto = caja.Text ?? string.Empty;
+        if (!string.Equals(actual, texto, StringComparison.Ordinal))
+        {
+            propiedad.SetValue(caja.DataContext, texto);
+        }
+    }
+
+    private void CargarCaracteristicasEnEditor()
+    {
+        _caracteristicas.Clear();
+        if (_enEdicion is null)
+        {
+            return;
+        }
+
+        foreach (var item in AlmacenCaracteristicas.NormalizarLista(_enEdicion.Caracteristicas))
+        {
+            _caracteristicas.Add(item);
+        }
+
+        _enEdicion.Caracteristicas = _caracteristicas.ToList();
+    }
+
+    private void CopiarCaracteristicasAlModelo()
+    {
+        if (_enEdicion is null)
+        {
+            return;
+        }
+
+        _enEdicion.Caracteristicas = AlmacenCaracteristicas.NormalizarLista(_caracteristicas);
+    }
+
+    private void CargarPartidasEnEditor()
+    {
+        _partidas.Clear();
+        if (_enEdicion is null)
+        {
+            return;
+        }
+
+        PartidasInventario.Normalizar(_enEdicion);
+        foreach (var partida in _enEdicion.Partidas.Select(p => p.Clonar()))
+        {
+            _partidas.Add(partida);
+        }
+
+        _enEdicion.Partidas = _partidas.Select(p => p.Clonar()).ToList();
+    }
+
+    private void CopiarPartidasAlModelo()
+    {
+        if (_enEdicion is null)
+        {
+            return;
+        }
+
+        _enEdicion.Partidas = _partidas.Select(p => p.Clonar()).ToList();
+    }
+
+    private void AplicarExistenciaDelFormularioSiCorresponde(FichaTecnica? destino = null)
+    {
+        var ficha = destino ?? _enEdicion;
+        if (ficha is null)
+        {
+            return;
+        }
+
+        var lotesCambiados = !string.Equals(HuellaPartidas(ficha), _huellaPartidasAlAbrir, StringComparison.Ordinal);
+        var existenciaCambiada = Math.Abs(ficha.Existencia - _existenciaAlAbrir) > PartidasInventario.Epsilon;
+        if (lotesCambiados || !existenciaCambiada || ficha.Partidas.Count > 1)
+        {
+            return;
+        }
+
+        if (ficha.Partidas.Count == 0)
+        {
+            if (ficha.Existencia > PartidasInventario.Epsilon
+                || !string.IsNullOrWhiteSpace(ficha.Lote)
+                || ficha.FechaCaducidad.HasValue)
+            {
+                ficha.Partidas.Add(new PartidaInventario
+                {
+                    Lote = ficha.Lote?.Trim() ?? string.Empty,
+                    FechaCaducidad = ficha.FechaCaducidad,
+                    Cantidad = Math.Max(0, ficha.Existencia)
+                });
+            }
+
+            return;
+        }
+
+        ficha.Partidas[0].Cantidad = Math.Max(0, ficha.Existencia);
+    }
+
+    private void RecordarInventarioAbierto(FichaTecnica ficha)
+    {
+        _existenciaAlAbrir = ficha.Existencia;
+        _huellaPartidasAlAbrir = HuellaPartidas(ficha);
+    }
+
+    private static string HuellaPartidas(FichaTecnica ficha) =>
+        JsonSerializer.Serialize(
+            (ficha.Partidas ?? []).Select(p => new
+            {
+                p.Id,
+                Lote = p.Lote ?? string.Empty,
+                Fecha = p.FechaCaducidad?.UtcDateTime.Date,
+                Cantidad = Math.Round(p.Cantidad, 4)
+            }),
+            JsonHuella);
+
+    private void AgregarPartida_Click(object sender, RoutedEventArgs e)
+    {
+        if (_enEdicion is null)
+        {
+            return;
+        }
+
+        _partidas.Add(new PartidaInventario());
+        CopiarPartidasAlModelo();
+        ActualizarAlertaCambios();
+    }
+
+    private void QuitarPartida_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement elemento || elemento.DataContext is not PartidaInventario item)
+        {
+            return;
+        }
+
+        _partidas.Remove(item);
+        CopiarPartidasAlModelo();
+        ActualizarAlertaCambios();
+    }
+
+    private void AgregarCaracteristica_Click(object sender, RoutedEventArgs e)
+    {
+        if (_enEdicion is null)
+        {
+            return;
+        }
+
+        if (_caracteristicas.Count >= CaracteristicaProducto.MaximoPorProducto)
+        {
+            Mostrar($"Cada producto admite como máximo {CaracteristicaProducto.MaximoPorProducto} características.", InfoBarSeverity.Warning);
+            return;
+        }
+
+        _caracteristicas.Add(new CaracteristicaProducto());
+        CopiarCaracteristicasAlModelo();
+        ActualizarAlertaCambios();
+    }
+
+    private void QuitarCaracteristica_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement elemento || elemento.DataContext is not CaracteristicaProducto item)
+        {
+            return;
+        }
+
+        _caracteristicas.Remove(item);
+        CopiarCaracteristicasAlModelo();
+        ActualizarAlertaCambios();
+    }
+
+    private void Cancelar_Click(object sender, RoutedEventArgs e)
+    {
+        if (ListaFichas.SelectedItem is FichaListaItem item)
+        {
+            MostrarFicha(item.Ficha);
+            Mostrar("Se descartaron los cambios no guardados.", InfoBarSeverity.Informational);
+            return;
+        }
+
+        OcultarFormulario();
+    }
+
+    private async void Eliminar_Click(object sender, RoutedEventArgs e)
+    {
+        if (_enEdicion is null)
+        {
+            return;
+        }
+
+        var existe = App.Instance.Repositorio.Todas.Any(f => f.Id == _enEdicion.Id);
+        if (!existe)
+        {
+            OcultarFormulario();
+            return;
+        }
+
+        var dialogo = new ContentDialog
+        {
+            Title = "Eliminar ficha técnica",
+            Content = $"Se eliminará «{_enEdicion.Nombre}» ({_enEdicion.Codigo}) del área de {Catalogos.Titulo(_area)}.",
+            PrimaryButtonText = "Eliminar",
+            CloseButtonText = "Cancelar",
+            DefaultButton = ContentDialogButton.Close,
+            XamlRoot = XamlRoot
+        };
+
+        if (await dialogo.ShowAsync() != ContentDialogResult.Primary)
+        {
+            return;
+        }
+
+        ImagenFichaService.EliminarDeFicha(_enEdicion.Id);
+        App.Instance.Repositorio.Eliminar(_enEdicion.Id);
+        _marcadas.Remove(_enEdicion.Id);
+        OcultarFormulario();
+        RefrescarLista();
+        Mostrar("La ficha se eliminó del catálogo.", InfoBarSeverity.Success);
+    }
+
+    private async void ExportarFicha_Click(object sender, RoutedEventArgs e)
+    {
+        if (_enEdicion is null)
+        {
+            return;
+        }
+
+        await ExportarIndividualAsync(_enEdicion);
+    }
+
+    private async void ExportarFichaLista_Click(object sender, RoutedEventArgs e)
+    {
+        var marcadas = FichasVisibles.Where(f => f.EstaMarcada).Select(f => f.Ficha).ToList();
+        if (marcadas.Count == 1)
+        {
+            await ExportarIndividualAsync(marcadas[0]);
+            return;
+        }
+
+        if (_enEdicion is not null)
+        {
+            await ExportarIndividualAsync(_enEdicion);
+            return;
+        }
+
+        Mostrar("Abra una ficha, márquela o pulse el botón de exportar en su fila.", InfoBarSeverity.Warning);
+    }
+
+    private async void ExportarFila_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement elemento)
+        {
+            return;
+        }
+
+        var ficha = (elemento.DataContext as FichaListaItem)?.Ficha
+                    ?? FichasVisibles.FirstOrDefault(f => Equals(elemento.Tag, f.Ficha.Id))?.Ficha;
+        if (ficha is null)
+        {
+            return;
+        }
+
+        await ExportarIndividualAsync(ficha);
+    }
+
+    private async Task ExportarIndividualAsync(FichaTecnica ficha)
+    {
+        var resultado = await ExcelUi.ExportarFichaAsync(ficha);
+        if (resultado is null)
+        {
+            return;
+        }
+
+        Mostrar($"Se exportó la ficha técnica ({resultado.Extension.Trim('.')}).", InfoBarSeverity.Success);
+        await ExcelUi.OfrecerAbrirAsync(XamlRoot, resultado);
+    }
+
+    private async void ExportarConsolidado_Click(object sender, RoutedEventArgs e)
+    {
+        var seleccionadas = FichasVisibles
+            .Where(f => f.EstaMarcada)
+            .Select(f => f.Ficha)
+            .ToList();
+
+        if (seleccionadas.Count == 0)
+        {
+            Mostrar("Marque al menos una ficha de la lista para exportar el consolidado.", InfoBarSeverity.Warning);
+            return;
+        }
+
+        var resultado = await ExcelUi.ExportarConsolidadoAsync(seleccionadas);
+        if (resultado is null)
+        {
+            return;
+        }
+
+        Mostrar($"Se exportó el consolidado de {seleccionadas.Count} ficha(s) ({resultado.Extension.Trim('.')}).", InfoBarSeverity.Success);
+        await ExcelUi.OfrecerAbrirAsync(XamlRoot, resultado);
+    }
+
+    private void Mostrar(string mensaje, InfoBarSeverity severidad)
+    {
+        BarraEstado.Severity = severidad;
+        BarraEstado.Message = mensaje;
+        BarraEstado.IsOpen = true;
+        BotonGuardarAlerta.Visibility = severidad == InfoBarSeverity.Warning || HayCambiosPendientes
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+    }
+}
+
+public sealed record OpcionAreaVista(string Nombre, Guid? Id);
