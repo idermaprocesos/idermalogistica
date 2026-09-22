@@ -73,9 +73,9 @@
                 <Button
                     Style="{StaticResource TarjetaKpiBotonStyle}"
                     Click="AbrirCatalogo_Click"
-                    ToolTipService.ToolTip="Abrir catálogo">
+                    ToolTipService.ToolTip="Abrir inventario">
                     <StackPanel Spacing="4">
-                        <TextBlock Opacity="0.65" FontSize="12" Text="CATÁLOGO" />
+                        <TextBlock Opacity="0.65" FontSize="12" Text="INVENTARIO" />
                         <TextBlock x:Name="KpiTotal" FontSize="26" FontWeight="SemiBold" />
                         <TextBlock Opacity="0.7" Text="Productos registrados" />
                     </StackPanel>
@@ -140,9 +140,9 @@
                     CornerRadius="12"
                     Click="AbrirCatalogo_Click">
                     <StackPanel Padding="12,10" Spacing="4">
-                        <TextBlock FontWeight="SemiBold" Text="Actividad del catálogo" />
+                        <TextBlock FontWeight="SemiBold" Text="Actividad del inventario" />
                         <TextBlock x:Name="DetalleActividad" TextWrapping="Wrap" />
-                        <TextBlock Opacity="0.7" Text="Abrir catálogo general para buscar o exportar." />
+                        <TextBlock Opacity="0.7" Text="Abrir inventario para buscar o exportar." />
                     </StackPanel>
                 </Button>
             </Grid>

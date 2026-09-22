@@ -1,4 +1,5 @@
 using ClosedXML.Excel;
+using ClosedXML.Excel.Drawings;
 
 namespace IdermaFichas.Services;
 
@@ -98,7 +99,11 @@ public static class IdermaMarca
             return;
         }
 
-        hoja.AddPicture(ruta)
+        using var flujo = new MemoryStream(File.ReadAllBytes(ruta));
+        var formato = Path.GetExtension(ruta).Equals(".png", StringComparison.OrdinalIgnoreCase)
+            ? XLPictureFormat.Png
+            : XLPictureFormat.Jpeg;
+        hoja.AddPicture(flujo, formato)
             .MoveTo(hoja.Cell(1, 1), 4, 2)
             .WithSize(132, 82);
         columnaTexto = 2;

@@ -754,6 +754,7 @@ public sealed partial class SettingsPage : Page
         VentanaHelper.AsociarSelector(selector);
         VentanaHelper.ConfigurarInicio(selector);
         selector.FileTypeChoices.Add("Archivo ZIP", [".zip"]);
+        selector.DefaultFileExtension = ".zip";
         selector.SuggestedFileName = $"iderma-exportacion-{DateTime.Now:yyyyMMdd-HHmm}";
 
         var archivo = await selector.PickSaveFileAsync();
@@ -765,6 +766,11 @@ public sealed partial class SettingsPage : Page
         var temporal = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}.zip");
         try
         {
+            App.Instance.Repositorio.Guardar();
+            App.Instance.Rh.Guardar();
+            App.Instance.PersonalMedico.Guardar();
+            App.Instance.Preferencias.Guardar();
+            App.Instance.HistorialPrecios.Guardar();
             await Task.Run(() => ExportacionDatosService.CrearZip(temporal, opciones));
             await ExcelUi.CopiarArchivoAsync(temporal, archivo);
 
@@ -796,6 +802,7 @@ public sealed partial class SettingsPage : Page
         VentanaHelper.AsociarSelector(selector);
         VentanaHelper.ConfigurarInicio(selector);
         selector.FileTypeChoices.Add("JSON", [".json"]);
+        selector.DefaultFileExtension = ".json";
         selector.SuggestedFileName = "fichas-tecnicas-iderma";
 
         var archivo = await selector.PickSaveFileAsync();
@@ -805,7 +812,7 @@ public sealed partial class SettingsPage : Page
         }
 
         await FileIO.WriteTextAsync(archivo, App.Instance.Repositorio.ExportarJson());
-        Mostrar("Catálogo exportado.", InfoBarSeverity.Success);
+        Mostrar("Inventario exportado.", InfoBarSeverity.Success);
     }
 
     private async void Importar_Click(object sender, RoutedEventArgs e)

@@ -38,7 +38,7 @@ public static class PdfRecetaService
                     pagina.MarginHorizontal(32);
                     pagina.MarginTop(22);
                     pagina.MarginBottom(24);
-                    pagina.DefaultTextStyle(x => x.FontFamily(Fonts.Calibri).FontSize(8.5f).FontColor(Navy));
+                    pagina.DefaultTextStyle(x => x.FontFamily("Calibri", "Segoe UI", "Arial").FontSize(8.5f).FontColor(Navy));
                     pagina.Header().Element(Encabezado);
                     pagina.Footer().Element(Pie);
                     pagina.Content().Column(col =>

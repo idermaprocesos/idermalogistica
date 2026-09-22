@@ -86,7 +86,7 @@ public static class RegistroIngresosExportService
                     pagina.MarginHorizontal(28);
                     pagina.MarginTop(24);
                     pagina.MarginBottom(20);
-                    pagina.DefaultTextStyle(x => x.FontFamily(Fonts.Calibri).FontSize(8).FontColor(Navy));
+                    pagina.DefaultTextStyle(x => x.FontFamily("Calibri", "Segoe UI", "Arial").FontSize(8).FontColor(Navy));
                     pagina.Header().Element(Encabezado);
                     pagina.Footer().Element(Pie);
                     pagina.Content().Column(col =>

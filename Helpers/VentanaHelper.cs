@@ -7,9 +7,14 @@ namespace IdermaFichas.Helpers;
 
 public static class VentanaHelper
 {
-    public static void AsociarSelector(object selector)
+    public static void AsociarSelector(object selector, Window? ventana = null)
     {
-        var hwnd = ObtenerHwnd();
+        var hwnd = ventana is null ? 0 : WindowNative.GetWindowHandle(ventana);
+        if (hwnd == 0)
+        {
+            hwnd = ObtenerHwnd();
+        }
+
         if (hwnd == 0)
         {
             throw new InvalidOperationException("No hay una ventana activa para abrir el selector de archivos.");

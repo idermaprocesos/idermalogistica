@@ -242,7 +242,7 @@ public static class AreasOperativas
         new()
         {
             Id = IdLimpieza,
-            Nombre = "Limpieza",
+            Nombre = "Materiales y Suministros",
             Descripcion = "Desinfectantes, detergentes, EPP y control de residuos de la clínica.",
             Prefijo = "LIM",
             Glifo = "\uEA18",

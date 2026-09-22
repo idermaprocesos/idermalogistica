@@ -50,7 +50,7 @@ public static class PdfFichaService
             pagina.MarginHorizontal(36);
             pagina.MarginTop(28);
             pagina.MarginBottom(24);
-            pagina.DefaultTextStyle(x => x.FontFamily(Fonts.Calibri).FontSize(9).FontColor(Navy));
+            pagina.DefaultTextStyle(x => x.FontFamily("Calibri", "Segoe UI", "Arial").FontSize(9).FontColor(Navy));
             pagina.Header().Element(Encabezado);
             pagina.Footer().Element(Pie);
 

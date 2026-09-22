@@ -70,7 +70,7 @@
                     </StackPanel>
                     <TextBlock
                         Opacity="0.72"
-                        Text="Busque una actualización, descárguela y luego pulse Instalar: se cerrará el programa, se creará una copia de seguridad y se abrirá el instalador. Al reabrir se cargan esos datos. Restaurar descarga la penúltima versión publicada; Instalar también aplica esa."
+                        Text="La misma versión de GitHub se comprueba al iniciar sesión en Iderma Launcher, para que logística y el resto del programa no queden en versiones distintas. Aquí puede descargar e instalar: se cierra el programa, se crea una copia y se abre el instalador. Restaurar usa la penúltima publicada."
                         TextWrapping="Wrap" />
                     <TextBlock x:Name="TextoVersionActual" Opacity="0.78" TextWrapping="Wrap" />
                     <ProgressBar

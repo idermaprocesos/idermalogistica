@@ -34,7 +34,7 @@ public static class ActualizacionService
         {
             var version = typeof(App).Assembly.GetName().Version;
             return version is null || version == new Version(0, 0, 0, 0)
-                ? new Version(1, 3, 0, 0)
+                ? new Version(2, 0, 0, 0)
                 : version;
         }
     }
@@ -383,12 +383,11 @@ public static class ActualizacionService
         var limpio = etiqueta.Trim();
         if (limpio.StartsWith("v", StringComparison.OrdinalIgnoreCase))
         {
-            limpio = limpio[1..];
+            limpio = limpio[1..].Trim().TrimStart('.').Trim();
         }
 
-        limpio = new string(limpio.TakeWhile(c => char.IsDigit(c) || c == '.').ToArray());
-        if (!Version.TryParse(limpio, out var version) &&
-            !Version.TryParse(limpio + ".0", out version))
+        var coincidencia = System.Text.RegularExpressions.Regex.Match(limpio, @"\d+(?:\.\d+){1,3}");
+        if (!coincidencia.Success || !Version.TryParse(coincidencia.Value, out var version))
         {
             throw new InvalidOperationException($"No se reconoció la versión «{etiqueta}».");
         }
@@ -424,7 +423,7 @@ public static class ActualizacionService
         {
             Timeout = TimeSpan.FromMinutes(15)
         };
-        cliente.DefaultRequestHeaders.UserAgent.ParseAdd("IdermaCapilarApp/1.3.0");
+        cliente.DefaultRequestHeaders.UserAgent.ParseAdd("IdermaCapilarApp/2.0.0");
         cliente.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
         cliente.DefaultRequestHeaders.TryAddWithoutValidation("X-GitHub-Api-Version", "2022-11-28");
         return cliente;

@@ -1,6 +1,6 @@
 <Project Sdk="WixToolset.Sdk/5.0.2">
   <PropertyGroup>
-    <OutputName>IdermaCapilarApp-V1.3.0</OutputName>
+    <OutputName>IdermaCapilarApp-V2.0.0</OutputName>
     <OutputType>Bundle</OutputType>
     <InstallerPlatform>x64</InstallerPlatform>
     <Cultures>es-ES</Cultures>

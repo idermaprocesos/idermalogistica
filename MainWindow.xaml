@@ -37,7 +37,7 @@
             MaxLength="80"
             HorizontalAlignment="Center"
             VerticalAlignment="Center"
-            PlaceholderText="Buscar un producto en catálogo, vencimientos, registro o precios"
+            PlaceholderText="Buscar un producto en inventario, vencimientos, registro, órdenes o precios"
             KeyDown="CajaBusquedaGlobal_KeyDown"
             TextChanged="CajaBusquedaGlobal_TextChanged" />
 
@@ -60,7 +60,7 @@
                         <FontIcon Glyph="&#xE80F;" />
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
-                <NavigationViewItem x:Name="ItemCatalogo" Content="Catálogo" Tag="catalogo">
+                <NavigationViewItem x:Name="ItemCatalogo" Content="Inventario" Tag="catalogo">
                     <NavigationViewItem.Icon>
                         <FontIcon Glyph="&#xE8A5;" />
                     </NavigationViewItem.Icon>
@@ -80,6 +80,11 @@
                         <FontIcon Glyph="&#xE8D4;" />
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
+                <NavigationViewItem x:Name="ItemOrdenCompra" Content="Orden de compra" Tag="orden-compra">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE7BF;" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
                 <NavigationViewItemHeader Content="Áreas operativas" />
                 <NavigationViewItem Content="Clínica" Tag="clinica">
                     <NavigationViewItem.Icon>
@@ -91,7 +96,7 @@
                         <FontIcon Glyph="&#xE8F1;" />
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
-                <NavigationViewItem Content="Limpieza" Tag="limpieza">
+                <NavigationViewItem Content="Materiales y Suministros" Tag="limpieza">
                     <NavigationViewItem.Icon>
                         <FontIcon Glyph="&#xEA18;" />
                     </NavigationViewItem.Icon>

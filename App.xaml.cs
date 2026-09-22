@@ -68,6 +68,16 @@ public partial class App : Application
 
         try
         {
+            OrdenesCompra.Cargar();
+        }
+        catch
+        {
+            OrdenesCompra = new OrdenesCompraRepository();
+            OrdenesCompra.Cargar();
+        }
+
+        try
+        {
             PersonalMedico.Cargar();
         }
         catch
@@ -88,6 +98,8 @@ public partial class App : Application
     public RegistroInventarioRepository Registro { get; private set; } = new();
 
     public HistorialPreciosRepository HistorialPrecios { get; private set; } = new();
+
+    public OrdenesCompraRepository OrdenesCompra { get; private set; } = new();
 
     public RhRepository Rh { get; private set; } = new();
 
@@ -139,6 +151,16 @@ public partial class App : Application
         {
             Instance.HistorialPrecios = new HistorialPreciosRepository();
             Instance.HistorialPrecios.Cargar();
+        }
+
+        try
+        {
+            Instance.OrdenesCompra.Cargar();
+        }
+        catch
+        {
+            Instance.OrdenesCompra = new OrdenesCompraRepository();
+            Instance.OrdenesCompra.Cargar();
         }
 
         try

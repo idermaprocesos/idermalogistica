@@ -139,7 +139,7 @@ public sealed partial class HomePage : Page
             return $"{stockBajo} producto(s) están en stock mínimo. Conviene reordenar existencias.";
         }
 
-        return $"Catálogo en orden: {total} producto(s) activos, sin alertas de caducidad ni stock crítico.";
+        return $"Inventario en orden: {total} producto(s) activos, sin alertas de caducidad ni stock crítico.";
     }
 
     private void PintarTarjetasArea(IReadOnlyList<AreaResumenVista> tarjetas)

@@ -10,6 +10,38 @@ public static class GraficoHistorialPrecios
 {
     public static byte[] GenerarPng(IReadOnlyList<PrecioProducto> precios)
     {
+        if (Thread.CurrentThread.GetApartmentState() == ApartmentState.STA)
+        {
+            return GenerarPngNucleo(precios);
+        }
+
+        byte[]? png = null;
+        Exception? error = null;
+        var hilo = new Thread(() =>
+        {
+            try
+            {
+                png = GenerarPngNucleo(precios);
+            }
+            catch (Exception ex)
+            {
+                error = ex;
+            }
+        });
+        hilo.SetApartmentState(ApartmentState.STA);
+        hilo.IsBackground = true;
+        hilo.Start();
+        hilo.Join();
+        if (error is not null)
+        {
+            throw error;
+        }
+
+        return png ?? [];
+    }
+
+    private static byte[] GenerarPngNucleo(IReadOnlyList<PrecioProducto> precios)
+    {
         var series = precios
             .OrderBy(p => p.Fecha)
             .ThenBy(p => p.Id)
@@ -23,26 +55,29 @@ public static class GraficoHistorialPrecios
         const int altoSerie = 340;
         var alto = Math.Max(altoSerie, Math.Max(1, series.Count) * altoSerie);
         using var imagen = new Bitmap(ancho * escala, alto * escala);
-        using var g = Graphics.FromImage(imagen);
-        g.SmoothingMode = SmoothingMode.AntiAlias;
-        g.InterpolationMode = InterpolationMode.HighQualityBicubic;
-        g.PixelOffsetMode = PixelOffsetMode.HighQuality;
-        g.CompositingQuality = CompositingQuality.HighQuality;
-        g.TextRenderingHint = TextRenderingHint.ClearTypeGridFit;
-        g.PageUnit = GraphicsUnit.Pixel;
-        g.ScaleTransform(escala, escala);
-        g.Clear(Color.White);
-
-        if (series.Count == 0)
+        using (var g = Graphics.FromImage(imagen))
         {
-            using var fuente = Fuente(13);
-            g.DrawString("Sin precios para graficar", fuente, Brushes.Gray, 24, 24);
-            return APng(imagen);
-        }
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            g.InterpolationMode = InterpolationMode.HighQualityBicubic;
+            g.PixelOffsetMode = PixelOffsetMode.HighQuality;
+            g.CompositingQuality = CompositingQuality.HighQuality;
+            g.TextRenderingHint = TextRenderingHint.ClearTypeGridFit;
+            g.PageUnit = GraphicsUnit.Pixel;
+            g.ScaleTransform(escala, escala);
+            g.Clear(Color.White);
 
-        for (var i = 0; i < series.Count; i++)
-        {
-            DibujarSerie(g, series[i], new Rectangle(0, i * altoSerie, ancho, altoSerie));
+            if (series.Count == 0)
+            {
+                using var fuente = Fuente(13);
+                g.DrawString("Sin precios para graficar", fuente, Brushes.Gray, 24, 24);
+            }
+            else
+            {
+                for (var i = 0; i < series.Count; i++)
+                {
+                    DibujarSerie(g, series[i], new Rectangle(0, i * altoSerie, ancho, altoSerie));
+                }
+            }
         }
 
         return APng(imagen);

@@ -23,7 +23,7 @@
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
             <StackPanel Spacing="4">
-                <TextBlock x:Name="TituloPagina" Style="{StaticResource TituloPaginaStyle}" Text="Catálogo general" />
+                <TextBlock x:Name="TituloPagina" Style="{StaticResource TituloPaginaStyle}" Text="Inventario" />
                 <TextBlock
                     x:Name="ResumenLista"
                     Style="{StaticResource SubtituloPaginaStyle}"

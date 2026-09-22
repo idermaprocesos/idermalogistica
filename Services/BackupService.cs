@@ -34,6 +34,7 @@ public sealed class BackupService
             CopiarSiExiste(App.Instance.PersonalMedico.RutaArchivo, Path.Combine(destino, "personal-medico.json"));
             CopiarSiExiste(App.Instance.Registro.RutaArchivo, Path.Combine(destino, "registro-ingresos.json"));
             CopiarSiExiste(App.Instance.HistorialPrecios.RutaArchivo, Path.Combine(destino, "historial-precios.json"));
+            CopiarSiExiste(App.Instance.OrdenesCompra.RutaArchivo, Path.Combine(destino, "ordenes-compra.json"));
 
             var incluyeImagenes = forzarImagenes || preferencias.CopiasIncluyenImagenes;
             if (incluyeImagenes && Directory.Exists(ImagenFichaService.Carpeta))
@@ -208,6 +209,12 @@ public sealed class BackupService
                 else if (File.Exists(App.Instance.HistorialPrecios.RutaArchivo))
                 {
                     File.Delete(App.Instance.HistorialPrecios.RutaArchivo);
+                }
+
+                var ordenesCopia = Path.Combine(ruta, "ordenes-compra.json");
+                if (File.Exists(ordenesCopia))
+                {
+                    RestaurarArchivo(ordenesCopia, App.Instance.OrdenesCompra.RutaArchivo);
                 }
 
                 var imagenes = Path.Combine(ruta, "imagenes-fichas");

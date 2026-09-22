@@ -267,7 +267,7 @@
                                         <MenuFlyoutItem
                                             Click="VerEnCatalogo_Click"
                                             Tag="{x:Bind Id}"
-                                            Text="Ver en el Catálogo" />
+                                            Text="Ver en el Inventario" />
                                     </MenuFlyout>
                                 </Grid.ContextFlyout>
                                 <Grid.ColumnDefinitions>

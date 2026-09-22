@@ -409,6 +409,9 @@ public sealed partial class MainWindow : Window
             case "historial-precios":
                 NavFrame.Navigate(typeof(HistorialPreciosPage), ConsumirFichaPendiente());
                 break;
+            case "orden-compra":
+                NavFrame.Navigate(typeof(OrdenCompraPage));
+                break;
             case "rh-colaboradores":
                 NavFrame.Navigate(typeof(RhColaboradoresPage));
                 break;

@@ -49,6 +49,7 @@ public static class ExportacionDatosService
             {
                 CopiarSiExiste(App.Instance.Repositorio.RutaArchivo, Path.Combine(temporal, "fichas-tecnicas.json"));
                 CopiarSiExiste(App.Instance.HistorialPrecios.RutaArchivo, Path.Combine(temporal, "historial-precios.json"));
+                CopiarSiExiste(AlmacenHistorialProveedores.RutaArchivo, Path.Combine(temporal, "historial-proveedores.json"));
             }
 
             if (opciones.Caracteristicas)
@@ -75,6 +76,7 @@ public static class ExportacionDatosService
             if (opciones.Registro)
             {
                 CopiarSiExiste(App.Instance.Registro.RutaArchivo, Path.Combine(temporal, "registro-ingresos.json"));
+                CopiarSiExiste(App.Instance.OrdenesCompra.RutaArchivo, Path.Combine(temporal, "ordenes-compra.json"));
             }
 
             if (opciones.Preferencias)

@@ -81,10 +81,11 @@ public static class BusquedaGlobalService
     private static readonly ResultadoBusquedaGlobal[] SeccionesFijas =
     [
         Seccion("Inicio", "Página principal", "inicio", "\uE80F"),
-        Seccion("Catálogo", "Todos los productos", "catalogo", "\uE8A5"),
+        Seccion("Inventario", "Todos los productos", "catalogo", "\uE8A5"),
         Seccion("Vencimientos", "Caducidad y alertas", "caducidad", "\uE787"),
         Seccion("Registro", "Ingresos por producto y unidad", "registro", "\uE81C"),
         Seccion("Historial de precios", "Precios por producto en soles o dólares", "historial-precios", "\uE8D4"),
+        Seccion("Orden de compra", "Listado, filtros y órdenes anteriores", "orden-compra", "\uE7BF"),
         Seccion("Sin área", "Productos sin área operativa", AreasOperativas.EtiquetaSinArea, "\uE8F1"),
         Seccion("Generador de etiquetas", "Área logística", "etiquetas", "\uE71B"),
         Seccion("Personal médico", "Doctores y colegiatura", "recetas", "\uE716"),
@@ -150,8 +151,8 @@ public static class BusquedaGlobalService
             yield return ProductoEnSeccion(
                 ficha,
                 nombre,
-                "Abrir en el catálogo general",
-                "Catálogo",
+                "Abrir en el inventario",
+                "Inventario",
                 "catalogo",
                 "\uE8A5");
 

@@ -46,18 +46,18 @@ public static class TourTrabajadorNuevo
             "inicio"),
         new(
             "Resumen de Inicio",
-            "Estas tarjetas resumen el catálogo. Pulse las de caducidad o catálogo para entrar a esa lista. Más abajo verá las áreas y la actividad reciente.",
+            "Estas tarjetas resumen el inventario. Pulse las de caducidad o inventario para entrar a esa lista. Más abajo verá las áreas y la actividad reciente.",
             "inicio",
             ObjetivoTour.ElementoPagina,
             "PanelKpis"),
         new(
-            "Catálogo",
+            "Inventario",
             "Lista de todas las fichas técnicas, sin filtrar por área. Desde aquí puede buscar, exportar o abrir un producto.",
             "catalogo",
             ObjetivoTour.ItemMenu,
             "catalogo"),
         new(
-            "Lista del catálogo",
+            "Lista del inventario",
             "Use los botones de la derecha para exportar o borrar. Pulse una fila para abrir la ficha en su área.",
             "catalogo",
             ObjetivoTour.ElementoPagina,
@@ -82,7 +82,7 @@ public static class TourTrabajadorNuevo
             "historial-precios"),
         new(
             "Áreas operativas",
-            "Cada área (Clínica, Oficina, Limpieza u otras que agreguen) tiene su propia lista de productos y su formulario. El orden se cambia en Configuración.",
+            "Cada área (Insumos Médicos, Materiales y Suministros u otras que agreguen) tiene su propia lista de productos y su formulario. El orden se cambia en Configuración.",
             "primera-area",
             ObjetivoTour.ItemMenu,
             "primera-area"),
@@ -138,7 +138,7 @@ public static class TourTrabajadorNuevo
             null),
         new(
             "Actualizar programa",
-            "Busque y descargue una versión en GitHub Releases. Cuando esté lista, pulse Instalar: se cierra el programa y se aplica el cambio. Restaurar usa la penúltima publicada.",
+            "Iderma Launcher comprueba esta misma versión de GitHub al iniciar sesión. Aquí también puede descargarla: Instalar cierra el programa y aplica el cambio. Restaurar usa la penúltima publicada.",
             "configuracion",
             ObjetivoTour.ElementoPagina,
             "TarjetaActualizacion"),

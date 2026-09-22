@@ -515,10 +515,17 @@ public sealed partial class CatalogoPage : Page
             return;
         }
 
-        var resultado = await ExcelUi.ExportarConsolidadoAsync(seleccionadas);
-        if (resultado is not null)
+        try
         {
-            await ExcelUi.OfrecerAbrirAsync(XamlRoot, resultado);
+            var resultado = await ExcelUi.ExportarConsolidadoAsync(seleccionadas);
+            if (resultado is not null)
+            {
+                await ExcelUi.OfrecerAbrirAsync(XamlRoot, resultado);
+            }
+        }
+        catch (Exception ex)
+        {
+            await Aviso("Exportar", $"No se pudo exportar: {ex.Message}");
         }
     }
 
@@ -556,10 +563,17 @@ public sealed partial class CatalogoPage : Page
 
     private async Task ExportarIndividualAsync(FichaTecnica ficha)
     {
-        var resultado = await ExcelUi.ExportarFichaAsync(ficha);
-        if (resultado is not null)
+        try
         {
-            await ExcelUi.OfrecerAbrirAsync(XamlRoot, resultado);
+            var resultado = await ExcelUi.ExportarFichaAsync(ficha);
+            if (resultado is not null)
+            {
+                await ExcelUi.OfrecerAbrirAsync(XamlRoot, resultado);
+            }
+        }
+        catch (Exception ex)
+        {
+            await Aviso("Exportar", $"No se pudo exportar: {ex.Message}");
         }
     }
 

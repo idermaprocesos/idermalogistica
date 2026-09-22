@@ -48,7 +48,7 @@ public static class PdfEtiquetaService
                 {
                     pagina.Size(tamano);
                     pagina.Margin(8, Unit.Millimetre);
-                    pagina.DefaultTextStyle(x => x.FontFamily(Fonts.Calibri).FontSize(8).FontColor(Navy));
+                    pagina.DefaultTextStyle(x => x.FontFamily("Calibri", "Segoe UI", "Arial").FontSize(8).FontColor(Navy));
                     pagina.Content().Element(c => Cuadricula(c, etiquetas, opciones, tamano, columnas, filasHoja, simbolo));
                     pagina.Footer().AlignCenter().Text(t =>
                     {
@@ -74,7 +74,7 @@ public static class PdfEtiquetaService
                 {
                     pagina.Size(PageSizes.A4);
                     pagina.Margin(6, Unit.Millimetre);
-                    pagina.DefaultTextStyle(x => x.FontFamily(Fonts.Calibri).FontSize(7).FontColor(Navy));
+                    pagina.DefaultTextStyle(x => x.FontFamily("Calibri", "Segoe UI", "Arial").FontSize(7).FontColor(Navy));
                     pagina.Content().Element(CuerpoPruebaUnicaCara);
                     pagina.Footer().AlignCenter().Text(
                             "Una cara A4 · Imprima al 100 % sin ajustar a la página · Mida 20, 50, 70 y 100 mm · Iderma Capilar · Área logística")

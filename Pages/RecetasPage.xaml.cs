@@ -519,17 +519,24 @@ public sealed partial class RecetasPage : Page
         receta.SmartHealthLink = "application/fhir+json";
         receta.SmartHealthCard = smartHealth.FichaSmartHealthCard;
         App.Instance.PersonalMedico.Guardar();
-        var resultado = await ExcelUi.GuardarPdfAsync(
-            $"receta-{Sanitizar(receta.Numero)}",
-            ruta => PdfRecetaService.Exportar(ruta, _doctor, _lista, receta, ratios));
-        if (resultado is null)
+        try
         {
-            return;
-        }
+            var resultado = await ExcelUi.GuardarPdfAsync(
+                $"receta-{Sanitizar(receta.Numero)}",
+                ruta => PdfRecetaService.Exportar(ruta, _doctor, _lista, receta, ratios));
+            if (resultado is null)
+            {
+                return;
+            }
 
-        MostrarAviso($"Se exportó {receta.Numero} en HL7 FHIR R4 (PDF y .fhir.json).", InfoBarSeverity.Success);
-        await ExcelUi.OfrecerAbrirAsync(XamlRoot, resultado);
-        RefrescarListas();
+            MostrarAviso($"Se exportó {receta.Numero} en HL7 FHIR R4 (PDF y .fhir.json).", InfoBarSeverity.Success);
+            await ExcelUi.OfrecerAbrirAsync(XamlRoot, resultado);
+            RefrescarListas();
+        }
+        catch (Exception ex)
+        {
+            MostrarAviso($"No se pudo exportar: {ex.Message}", InfoBarSeverity.Error);
+        }
     }
 
     private bool AplicarCamposDoctor()

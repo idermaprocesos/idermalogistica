@@ -1,4 +1,5 @@
 using ClosedXML.Excel;
+using ClosedXML.Excel.Drawings;
 using IdermaFichas.Models;
 using QuestPDF.Fluent;
 using QuestPDF.Helpers;
@@ -72,21 +73,11 @@ public static class HistorialPreciosExportService
         hoja.Cell(filaGrafico, 1).Style.Font.FontColor = XLColor.FromHtml(Navy);
 
         var png = GraficoHistorialPrecios.GenerarPng(cronologico);
-        var temporal = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}.png");
-        File.WriteAllBytes(temporal, png);
-        try
-        {
-            hoja.AddPicture(temporal)
-                .MoveTo(hoja.Cell(filaGrafico + 1, 1))
-                .WithSize(960, Math.Max(1, cronologico.Select(p => MonedaPrecio.Normalizar(p.Moneda)).Distinct().Count()) * 300);
-        }
-        finally
-        {
-            if (File.Exists(temporal))
-            {
-                File.Delete(temporal);
-            }
-        }
+        var altoGrafico = Math.Max(1, cronologico.Select(p => MonedaPrecio.Normalizar(p.Moneda)).Distinct().Count()) * 280;
+        using var flujo = new MemoryStream(png);
+        hoja.AddPicture(flujo, XLPictureFormat.Png)
+            .MoveTo(hoja.Cell(filaGrafico + 1, 1))
+            .WithSize(720, altoGrafico);
 
         IdermaMarca.EscribirPieTabla(hoja, filaGrafico + 14, 8);
         hoja.SheetView.FreezeRows(inicio);
@@ -109,7 +100,7 @@ public static class HistorialPreciosExportService
                     pagina.MarginHorizontal(32);
                     pagina.MarginTop(24);
                     pagina.MarginBottom(20);
-                    pagina.DefaultTextStyle(x => x.FontFamily(Fonts.Calibri).FontSize(9).FontColor(Navy));
+                    pagina.DefaultTextStyle(x => x.FontFamily("Calibri", "Segoe UI", "Arial").FontSize(9).FontColor(Navy));
                     pagina.Header().Element(Encabezado);
                     pagina.Footer().Element(Pie);
                     pagina.Content().Column(col =>
@@ -122,8 +113,8 @@ public static class HistorialPreciosExportService
                         col.Item().Element(c => CajaResumen(c, cronologico));
                         col.Item().Text("Estadística lineal de subidas y bajadas")
                             .FontSize(10).Bold();
-                        col.Item().Border(0.6f).BorderColor(Oro).Padding(6)
-                            .Image(png).FitWidth().WithCompressionQuality(ImageCompressionQuality.Best);
+                        col.Item().Border(0.6f).BorderColor(Oro).Padding(6).MaxHeight(280)
+                            .Image(png).FitArea().WithCompressionQuality(ImageCompressionQuality.Best);
                         col.Item().Element(c => Tabla(c, cronologico));
                     });
                 });

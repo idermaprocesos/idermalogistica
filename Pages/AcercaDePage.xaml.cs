@@ -19,7 +19,7 @@ public sealed partial class AcercaDePage : Page
         TextoSistema.Text = RuntimeInformation.OSDescription;
         TextoRam.Text = FormatoRam();
         TextoProcesadores.Text = $"{Environment.ProcessorCount} lógicos · {RuntimeInformation.OSArchitecture}";
-        TextoVersion.Text = version is null ? "V1.3.0" : $"V{version.Major}.{version.Minor}.{version.Build}";
+        TextoVersion.Text = version is null ? "V2.0.0" : $"V{version.Major}.{version.Minor}.{version.Build}";
     }
 
     private static string FormatoRam()

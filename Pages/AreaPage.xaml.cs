@@ -41,6 +41,7 @@ public sealed partial class AreaPage : Page, IEdicionProducto
     private string _huellaPartidasAlAbrir = string.Empty;
     private bool _actualizandoHistorialProveedor;
     private bool _actualizandoCanalDato;
+    private readonly HashSet<UIElement> _ruedaProtegida = [];
     private readonly ObservableCollection<CaracteristicaProducto> _caracteristicas = [];
     private readonly ObservableCollection<PartidaInventario> _partidas = [];
 
@@ -54,7 +55,12 @@ public sealed partial class AreaPage : Page, IEdicionProducto
             _relojBusqueda.Stop();
             RefrescarLista(_enEdicion?.Id);
         };
-        Loaded += (_, _) => _relojSucio.Start();
+        Formulario.SelectionChanged += (_, _) => ProtegerControlesDeRueda(Formulario);
+        Loaded += (_, _) =>
+        {
+            ProtegerControlesDeRueda(Formulario);
+            _relojSucio.Start();
+        };
         Unloaded += (_, _) =>
         {
             _relojSucio.Stop();
@@ -749,13 +755,14 @@ public sealed partial class AreaPage : Page, IEdicionProducto
         _actualizandoArea = true;
         SeleccionarEnCombo(ComboAreaProducto, _enEdicion.Area);
         _actualizandoArea = false;
-        _huellaOriginal = Huella(_enEdicion);
-        _huellaVigilada = _huellaOriginal;
+        FijarHuellaOriginal();
         _alertaSuciaVisible = false;
         _relojGuardadoFondo.Stop();
         EstadoVacio.Visibility = Visibility.Collapsed;
         ContenedorFormulario.Visibility = Visibility.Visible;
+        ProtegerControlesDeRueda(Formulario);
         _ = ActualizarPreviewImagenAsync();
+        DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, FijarHuellaOriginal);
     }
 
     private void OcultarFormulario()
@@ -1091,7 +1098,7 @@ public sealed partial class AreaPage : Page, IEdicionProducto
             return;
         }
 
-        EmpujarBindingsSinQuitarFoco();
+        SincronizarEditorSinForzarControlesOcultos();
         var actual = Huella(_enEdicion);
         var sucio = actual != _huellaOriginal;
         if (sucio)
@@ -1143,20 +1150,59 @@ public sealed partial class AreaPage : Page, IEdicionProducto
         var copia = ficha.Clonar();
         copia.FechaCreacion = default;
         copia.FechaActualizacion = default;
+        copia.FechaAdquisicion = NormalizarFechaHuella(copia.FechaAdquisicion);
+        copia.FechaCaducidad = NormalizarFechaHuella(copia.FechaCaducidad);
+        if (double.IsNaN(copia.Existencia))
+        {
+            copia.Existencia = 0;
+        }
+
+        if (double.IsNaN(copia.StockMinimo))
+        {
+            copia.StockMinimo = 0;
+        }
+
+        if (double.IsNaN(copia.GarantiaMeses))
+        {
+            copia.GarantiaMeses = 0;
+        }
+
+        foreach (var partida in copia.Partidas)
+        {
+            partida.FechaCaducidad = NormalizarFechaHuella(partida.FechaCaducidad);
+            if (double.IsNaN(partida.Cantidad))
+            {
+                partida.Cantidad = 0;
+            }
+        }
+
         return JsonSerializer.Serialize(copia, JsonHuella);
     }
 
-    private void CopiarCanalDatoAlModelo()
+    private static DateTimeOffset? NormalizarFechaHuella(DateTimeOffset? fecha) =>
+        fecha is { } valor ? new DateTimeOffset(valor.Date, TimeSpan.Zero) : null;
+
+    private void FijarHuellaOriginal()
     {
         if (_enEdicion is null)
         {
             return;
         }
 
-        _enEdicion.ContactosProveedorDefinidos = true;
-        _enEdicion.Proveedor = CajaProveedor.Text?.Trim() ?? string.Empty;
-        _enEdicion.ContactoDato1 = CajaDatoProveedor1.Text?.Trim() ?? string.Empty;
-        _enEdicion.ContactoDato2 = CajaDatoProveedor2.Text?.Trim() ?? string.Empty;
+        _huellaOriginal = Huella(_enEdicion);
+        _huellaVigilada = _huellaOriginal;
+    }
+
+    private void CopiarCanalDatoAlModelo()
+    {
+        if (_enEdicion is null || !ControlListoParaLeer(CajaProveedor) || !EstaEnPestañaVisible(CajaProveedor))
+        {
+            return;
+        }
+
+        CopiarTextoSiListo(CajaProveedor, valor => _enEdicion.Proveedor = valor);
+        CopiarTextoSiListo(CajaDatoProveedor1, valor => _enEdicion.ContactoDato1 = valor);
+        CopiarTextoSiListo(CajaDatoProveedor2, valor => _enEdicion.ContactoDato2 = valor);
         _enEdicion.ContactoDato3 = string.Empty;
         _enEdicion.ContactoCanal3 = CanalDatoProveedor.Web;
         if (ComboCanalDato1.SelectedItem is CanalDatoOpcion c1)
@@ -1169,7 +1215,37 @@ public sealed partial class AreaPage : Page, IEdicionProducto
             _enEdicion.ContactoCanal2 = c2.Id;
         }
 
+        _enEdicion.ContactosProveedorDefinidos = true;
         _enEdicion.SincronizarCamposProveedorLegados();
+    }
+
+    private void CopiarTextoSiListo(TextBox? caja, Action<string> asignar)
+    {
+        if (!ControlListoParaLeer(caja))
+        {
+            return;
+        }
+
+        asignar(caja!.Text?.Trim() ?? string.Empty);
+    }
+
+    private static bool ControlListoParaLeer(FrameworkElement? control) =>
+        control is { IsLoaded: true, Visibility: Visibility.Visible } && control.ActualHeight > 0;
+
+    private bool EstaEnPestañaVisible(DependencyObject origen)
+    {
+        var actual = origen;
+        while (actual is not null && actual is not Pivot)
+        {
+            if (actual is PivotItem item)
+            {
+                return ReferenceEquals(item, Formulario.SelectedItem);
+            }
+
+            actual = VisualTreeHelper.GetParent(actual);
+        }
+
+        return true;
     }
 
     private void SincronizarEnfoque()
@@ -1187,17 +1263,33 @@ public sealed partial class AreaPage : Page, IEdicionProducto
 
     private void EmpujarBindingsSinQuitarFoco()
     {
-        CopiarCaracteristicasAlModelo();
-        CopiarPartidasAlModelo();
-        CopiarCanalDatoAlModelo();
+        SincronizarEditorSinForzarControlesOcultos();
         if (Formulario is not null)
         {
             EmpujarBindings(Formulario);
         }
     }
 
+    private void SincronizarEditorSinForzarControlesOcultos()
+    {
+        CopiarCaracteristicasAlModelo();
+        CopiarPartidasAlModelo();
+        CopiarCanalDatoAlModelo();
+        if (XamlRoot is not null
+            && FocusManager.GetFocusedElement(XamlRoot) is TextBox caja
+            && ElementoEnFoco(caja))
+        {
+            AplicarTextoEnfocado(caja);
+        }
+    }
+
     private void EmpujarBindings(DependencyObject raiz)
     {
+        if (raiz is FrameworkElement elemento && (!ControlListoParaLeer(elemento) || !EstaEnPestañaVisible(elemento)))
+        {
+            return;
+        }
+
         switch (raiz)
         {
             case TextBox caja:
@@ -1205,14 +1297,14 @@ public sealed partial class AreaPage : Page, IEdicionProducto
                 {
                     AplicarTextoEnfocado(caja);
                 }
-                else
+                else if (!string.IsNullOrEmpty(caja.Text) || !TieneTextoEnModelo(caja))
                 {
                     caja.GetBindingExpression(TextBox.TextProperty)?.UpdateSource();
                 }
 
                 return;
             case NumberBox numero:
-                if (!ElementoEnFoco(numero))
+                if (!ElementoEnFoco(numero) && !double.IsNaN(numero.Value))
                 {
                     numero.GetBindingExpression(NumberBox.ValueProperty)?.UpdateSource();
                 }
@@ -1221,13 +1313,20 @@ public sealed partial class AreaPage : Page, IEdicionProducto
             case ComboBox combo:
                 if (!ElementoEnFoco(combo))
                 {
-                    combo.GetBindingExpression(ComboBox.TextProperty)?.UpdateSource();
-                    combo.GetBindingExpression(ComboBox.SelectedItemProperty)?.UpdateSource();
+                    if (!string.IsNullOrEmpty(combo.Text) || !TieneTextoEnModelo(combo))
+                    {
+                        combo.GetBindingExpression(ComboBox.TextProperty)?.UpdateSource();
+                    }
+
+                    if (combo.SelectedItem is not null)
+                    {
+                        combo.GetBindingExpression(ComboBox.SelectedItemProperty)?.UpdateSource();
+                    }
                 }
 
                 return;
             case CalendarDatePicker fecha:
-                if (!ElementoEnFoco(fecha))
+                if (!ElementoEnFoco(fecha) && (fecha.Date is not null || !TieneFechaEnModelo(fecha)))
                 {
                     fecha.GetBindingExpression(CalendarDatePicker.DateProperty)?.UpdateSource();
                 }
@@ -1246,6 +1345,88 @@ public sealed partial class AreaPage : Page, IEdicionProducto
         {
             EmpujarBindings(VisualTreeHelper.GetChild(raiz, i));
         }
+    }
+
+    private static bool TieneTextoEnModelo(FrameworkElement control)
+    {
+        var ruta = control switch
+        {
+            TextBox caja => caja.GetBindingExpression(TextBox.TextProperty)?.ParentBinding?.Path?.Path,
+            ComboBox combo => combo.GetBindingExpression(ComboBox.TextProperty)?.ParentBinding?.Path?.Path,
+            _ => null
+        };
+        if (string.IsNullOrEmpty(ruta) || control.DataContext is null)
+        {
+            return false;
+        }
+
+        var propiedad = control.DataContext.GetType().GetProperty(ruta);
+        return propiedad?.GetValue(control.DataContext) is string texto && texto.Length > 0;
+    }
+
+    private static bool TieneFechaEnModelo(CalendarDatePicker fecha)
+    {
+        var ruta = fecha.GetBindingExpression(CalendarDatePicker.DateProperty)?.ParentBinding?.Path?.Path;
+        if (string.IsNullOrEmpty(ruta) || fecha.DataContext is null)
+        {
+            return false;
+        }
+
+        return fecha.DataContext.GetType().GetProperty(ruta)?.GetValue(fecha.DataContext) is DateTimeOffset;
+    }
+
+    private void ProtegerControlesDeRueda(DependencyObject? raiz)
+    {
+        if (raiz is null)
+        {
+            return;
+        }
+
+        if (raiz is ComboBox or NumberBox or CalendarDatePicker && raiz is UIElement control && _ruedaProtegida.Add(control))
+        {
+            control.AddHandler(PointerWheelChangedEvent, new PointerEventHandler(RedirigirRuedaAlDesplazamiento), true);
+        }
+
+        var hijos = VisualTreeHelper.GetChildrenCount(raiz);
+        for (var i = 0; i < hijos; i++)
+        {
+            ProtegerControlesDeRueda(VisualTreeHelper.GetChild(raiz, i));
+        }
+    }
+
+    private static void RedirigirRuedaAlDesplazamiento(object sender, PointerRoutedEventArgs e)
+    {
+        if (sender is ComboBox { IsDropDownOpen: true } || sender is not UIElement origen)
+        {
+            return;
+        }
+
+        var scroll = BuscarPadre<ScrollViewer>(origen);
+        if (scroll is null)
+        {
+            return;
+        }
+
+        e.Handled = true;
+        var delta = e.GetCurrentPoint(origen).Properties.MouseWheelDelta;
+        scroll.ChangeView(null, scroll.VerticalOffset - delta, null, true);
+    }
+
+    private static T? BuscarPadre<T>(DependencyObject? origen)
+        where T : DependencyObject
+    {
+        var actual = origen;
+        while (actual is not null)
+        {
+            if (actual is T coincidencia)
+            {
+                return coincidencia;
+            }
+
+            actual = VisualTreeHelper.GetParent(actual);
+        }
+
+        return null;
     }
 
     private bool ElementoEnFoco(DependencyObject elemento)
@@ -1332,6 +1513,7 @@ public sealed partial class AreaPage : Page, IEdicionProducto
         }
 
         _enEdicion.Partidas = _partidas.Select(p => p.Clonar()).ToList();
+        ProtegerControlesDeRueda(ListaPartidas);
     }
 
     private void CopiarPartidasAlModelo()
@@ -1405,6 +1587,7 @@ public sealed partial class AreaPage : Page, IEdicionProducto
 
         _partidas.Add(new PartidaInventario());
         CopiarPartidasAlModelo();
+        ProtegerControlesDeRueda(ListaPartidas);
         ActualizarAlertaCambios();
     }
 
@@ -1546,14 +1729,21 @@ public sealed partial class AreaPage : Page, IEdicionProducto
 
     private async Task ExportarIndividualAsync(FichaTecnica ficha)
     {
-        var resultado = await ExcelUi.ExportarFichaAsync(ficha);
-        if (resultado is null)
+        try
         {
-            return;
-        }
+            var resultado = await ExcelUi.ExportarFichaAsync(ficha);
+            if (resultado is null)
+            {
+                return;
+            }
 
-        Mostrar($"Se exportó la ficha técnica ({resultado.Extension.Trim('.')}).", InfoBarSeverity.Success);
-        await ExcelUi.OfrecerAbrirAsync(XamlRoot, resultado);
+            Mostrar($"Se exportó la ficha técnica ({resultado.Extension.Trim('.')}).", InfoBarSeverity.Success);
+            await ExcelUi.OfrecerAbrirAsync(XamlRoot, resultado);
+        }
+        catch (Exception ex)
+        {
+            Mostrar($"No se pudo exportar: {ex.Message}", InfoBarSeverity.Error);
+        }
     }
 
     private async void ExportarConsolidado_Click(object sender, RoutedEventArgs e)
@@ -1569,14 +1759,21 @@ public sealed partial class AreaPage : Page, IEdicionProducto
             return;
         }
 
-        var resultado = await ExcelUi.ExportarConsolidadoAsync(seleccionadas);
-        if (resultado is null)
+        try
         {
-            return;
-        }
+            var resultado = await ExcelUi.ExportarConsolidadoAsync(seleccionadas);
+            if (resultado is null)
+            {
+                return;
+            }
 
-        Mostrar($"Se exportó el consolidado de {seleccionadas.Count} ficha(s) ({resultado.Extension.Trim('.')}).", InfoBarSeverity.Success);
-        await ExcelUi.OfrecerAbrirAsync(XamlRoot, resultado);
+            Mostrar($"Se exportó el consolidado de {seleccionadas.Count} ficha(s) ({resultado.Extension.Trim('.')}).", InfoBarSeverity.Success);
+            await ExcelUi.OfrecerAbrirAsync(XamlRoot, resultado);
+        }
+        catch (Exception ex)
+        {
+            Mostrar($"No se pudo exportar: {ex.Message}", InfoBarSeverity.Error);
+        }
     }
 
     private void Mostrar(string mensaje, InfoBarSeverity severidad)
