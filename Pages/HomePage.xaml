@@ -47,6 +47,12 @@
                             x:Name="TextoResumenDia"
                             Margin="0,4,0,0"
                             Style="{StaticResource SubtituloPaginaStyle}" />
+                        <TextBlock
+                            x:Name="TextoNube"
+                            Opacity="0.72"
+                            Style="{StaticResource CaptionTextBlockStyle}"
+                            Text="Inventario local"
+                            TextWrapping="Wrap" />
                     </StackPanel>
                     <StackPanel Grid.Column="1" VerticalAlignment="Center" HorizontalAlignment="Right" Spacing="2">
                         <TextBlock
@@ -154,7 +160,7 @@
                 </Grid.ColumnDefinitions>
                 <StackPanel Spacing="2">
                     <TextBlock FontSize="18" FontWeight="SemiBold" Text="Actividad reciente" />
-                    <TextBlock Opacity="0.7" Text="Últimos materiales actualizados. Pulse una fila para abrir la ficha." />
+                    <TextBlock Opacity="0.7" Text="Explicación con el inventario y el registro guardados en este equipo. No consulta la nube." TextWrapping="Wrap" />
                 </StackPanel>
                 <TextBlock
                     x:Name="TextoUltimaActualizacion"
@@ -199,7 +205,7 @@
                             <TextBlock VerticalAlignment="Center" FontWeight="SemiBold" Text="{x:Bind Codigo}" />
                             <StackPanel Grid.Column="1" Spacing="2">
                                 <TextBlock FontWeight="SemiBold" Text="{x:Bind Nombre}" />
-                                <TextBlock Opacity="0.65" Text="{x:Bind Resumen}" />
+                                <TextBlock Opacity="0.65" Text="{x:Bind Explicacion}" TextWrapping="Wrap" />
                             </StackPanel>
                             <TextBlock Grid.Column="2" VerticalAlignment="Center" Text="{x:Bind AreaTitulo}" />
                             <TextBlock Grid.Column="3" VerticalAlignment="Center" Text="{x:Bind Existencia}" />

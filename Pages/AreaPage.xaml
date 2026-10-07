@@ -300,8 +300,7 @@
                                             Grid.Column="2"
                                             HorizontalAlignment="Stretch"
                                             VerticalAlignment="Center"
-                                            IsEditable="True"
-                                            Text="{Binding Categoria, Mode=TwoWay}" />
+                                            SelectedItem="{Binding Categoria, Mode=TwoWay}" />
                                     </Grid>
                                     <StackPanel Grid.Row="1" Grid.ColumnSpan="2">
                                         <TextBlock Style="{StaticResource EtiquetaCampoStyle}" Text="Nombre del material" />
@@ -319,8 +318,7 @@
                                         <ComboBox
                                             x:Name="ComboUnidad"
                                             HorizontalAlignment="Stretch"
-                                            IsEditable="True"
-                                            Text="{Binding UnidadMedida, Mode=TwoWay}" />
+                                            SelectedItem="{Binding UnidadMedida, Mode=TwoWay}" />
                                     </StackPanel>
                                     <StackPanel Grid.Row="2" Grid.Column="1">
                                         <TextBlock Style="{StaticResource EtiquetaCampoStyle}" Text="Área del producto" />
@@ -335,17 +333,15 @@
                                         <ComboBox
                                             x:Name="ComboEstadoFisico"
                                             HorizontalAlignment="Stretch"
-                                            IsEditable="True"
-                                            Text="{Binding EstadoFisico, Mode=TwoWay}" />
+                                            SelectedItem="{Binding EstadoFisico, Mode=TwoWay}" />
                                     </StackPanel>
                                     <StackPanel Grid.Row="3" Grid.Column="1">
                                         <TextBlock Style="{StaticResource EtiquetaCampoStyle}" Text="Presentación" />
                                         <ComboBox
                                             x:Name="ComboPresentacion"
                                             HorizontalAlignment="Stretch"
-                                            IsEditable="True"
                                             PlaceholderText="Caja, frasco, set, blister..."
-                                            Text="{Binding Presentacion, Mode=TwoWay}" />
+                                            SelectedItem="{Binding Presentacion, Mode=TwoWay}" />
                                     </StackPanel>
                                     <Grid Grid.Row="4" Grid.ColumnSpan="2" ColumnSpacing="12">
                                         <Grid.ColumnDefinitions>
@@ -515,7 +511,7 @@
                                 <StackPanel Padding="4,8,16,16" Spacing="8">
                                     <TextBlock
                                         Opacity="0.72"
-                                        Text="Marca, modelo, existencias y condiciones de uso. Las listas aceptan texto libre."
+                                        Text="Marca, modelo, existencias y condiciones de uso."
                                         TextWrapping="Wrap" />
                                     <Grid ColumnSpacing="12" RowSpacing="12">
                                     <Grid.ColumnDefinitions>
@@ -546,8 +542,7 @@
                                         <ComboBox
                                             x:Name="ComboVidaUtil"
                                             HorizontalAlignment="Stretch"
-                                            IsEditable="True"
-                                            Text="{Binding VidaUtil, Mode=TwoWay}" />
+                                            SelectedItem="{Binding VidaUtil, Mode=TwoWay}" />
                                     </StackPanel>
                                     <StackPanel Grid.Row="2">
                                         <TextBlock Style="{StaticResource EtiquetaCampoStyle}" Text="Existencia" />
@@ -622,8 +617,7 @@
                                         <ComboBox
                                             x:Name="ComboPais"
                                             HorizontalAlignment="Stretch"
-                                            IsEditable="True"
-                                            Text="{Binding PaisOrigen, Mode=TwoWay}" />
+                                            SelectedItem="{Binding PaisOrigen, Mode=TwoWay}" />
                                     </StackPanel>
                                     <StackPanel Grid.Row="1">
                                         <TextBlock Style="{StaticResource EtiquetaCampoStyle}" Text="Planta / ciudad de origen" />
@@ -634,8 +628,7 @@
                                         <ComboBox
                                             x:Name="ComboOrigen"
                                             HorizontalAlignment="Stretch"
-                                            IsEditable="True"
-                                            Text="{Binding TipoOrigen, Mode=TwoWay}" />
+                                            SelectedItem="{Binding TipoOrigen, Mode=TwoWay}" />
                                     </StackPanel>
                                     <StackPanel Grid.Row="2">
                                         <TextBlock Style="{StaticResource EtiquetaCampoStyle}" Text="Número de factura" />
@@ -727,25 +720,22 @@
                                         <ComboBox
                                             x:Name="ComboProcedimiento"
                                             HorizontalAlignment="Stretch"
-                                            IsEditable="True"
-                                            Text="{Binding Procedimiento, Mode=TwoWay}" />
+                                            SelectedItem="{Binding Procedimiento, Mode=TwoWay}" />
                                     </StackPanel>
                                     <StackPanel Grid.Row="1">
                                         <TextBlock Style="{StaticResource EtiquetaCampoStyle}" Text="Riesgo biológico" />
                                         <ComboBox
                                             x:Name="ComboRiesgo"
                                             HorizontalAlignment="Stretch"
-                                            IsEditable="True"
-                                            Text="{Binding RiesgoBiologico, Mode=TwoWay}" />
+                                            SelectedItem="{Binding RiesgoBiologico, Mode=TwoWay}" />
                                     </StackPanel>
                                     <StackPanel Grid.Row="1" Grid.Column="1">
                                         <TextBlock Style="{StaticResource EtiquetaCampoStyle}" Text="Temperatura de almacenamiento" />
                                         <ComboBox
                                             x:Name="ComboTemperatura"
                                             HorizontalAlignment="Stretch"
-                                            IsEditable="True"
                                             PlaceholderText="Ej. 15–25 °C o 2–8 °C"
-                                            Text="{Binding TemperaturaAlmacenamiento, Mode=TwoWay}" />
+                                            SelectedItem="{Binding TemperaturaAlmacenamiento, Mode=TwoWay}" />
                                     </StackPanel>
                                     <StackPanel Grid.Row="2">
                                         <TextBlock Style="{StaticResource EtiquetaCampoStyle}" Text="Caducidad de referencia" />
@@ -885,8 +875,7 @@
                                         <ComboBox
                                             x:Name="ComboPeligrosidad"
                                             HorizontalAlignment="Stretch"
-                                            IsEditable="True"
-                                            Text="{Binding Peligrosidad, Mode=TwoWay}" />
+                                            SelectedItem="{Binding Peligrosidad, Mode=TwoWay}" />
                                     </StackPanel>
                                     <StackPanel Grid.Row="3">
                                         <TextBlock Style="{StaticResource EtiquetaCampoStyle}" Text="Hoja de seguridad (SDS)" />

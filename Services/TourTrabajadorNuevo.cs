@@ -81,6 +81,12 @@ public static class TourTrabajadorNuevo
             ObjetivoTour.ItemMenu,
             "historial-precios"),
         new(
+            "Proveedores",
+            "Debajo de Orden de compra. Registre proveedores, califíquelos (puntual, problemas, retraso…) y deje notas. Puede filtrar por el mes o el año en que se agregaron.",
+            "proveedores",
+            ObjetivoTour.ItemMenu,
+            "proveedores"),
+        new(
             "Áreas operativas",
             "Cada área (Insumos Médicos, Materiales y Suministros u otras que agreguen) tiene su propia lista de productos y su formulario. El orden se cambia en Configuración.",
             "primera-area",

@@ -15,7 +15,8 @@ public static class ExcelFichaService
         "Material", "Unidad", "Marca", "Modelo", "Especificaciones",
         "Normas", "Almacenamiento", "Instrucciones", "Vida útil", "Existencia",
         "Stock mínimo", "Fabricante", "País", "Planta", "Tipo origen",
-        "Proveedor", "Contacto", "Lote", "Fecha adquisición", "Factura",
+        "Proveedor", "Contacto", "Canal contacto 1", "Dato contacto 1", "Canal contacto 2", "Dato contacto 2",
+        "Lote", "Fecha adquisición", "Factura",
         "Registro sanitario", "Uso clínico", "Procedimiento", "Estéril", "Refrigeración",
         "Temperatura", "Fecha caducidad", "Composición", "Riesgo biológico", "Contraindicaciones",
         "Reutilizable", "Ubicación", "Número de serie", "Garantía meses", "Mantenimiento",
@@ -39,14 +40,18 @@ public static class ExcelFichaService
         EstiloEncabezado(hoja.Range(fila, 1, fila, Encabezados.Length));
 
         var ejemplo = fila + 1;
-        hoja.Cell(ejemplo, 1).Value = "Clínica";
-        hoja.Cell(ejemplo, 2).Value = "CLI_010";
-        hoja.Cell(ejemplo, 3).Value = "Gasas estériles 10 × 10";
-        hoja.Cell(ejemplo, 4).Value = "Material de curación";
-        hoja.Cell(ejemplo, 20).Value = 40;
-        hoja.Cell(ejemplo, 21).Value = 10;
-        hoja.Cell(ejemplo, 23).Value = "México";
-        hoja.Cell(ejemplo, 37).Value = DateTime.Today.AddMonths(8);
+        Ejemplo(hoja, ejemplo, "Área", "Clínica");
+        Ejemplo(hoja, ejemplo, "Código", "CLI_010");
+        Ejemplo(hoja, ejemplo, "Nombre", "Gasas estériles 10 × 10");
+        Ejemplo(hoja, ejemplo, "Categoría", "Material de curación");
+        Ejemplo(hoja, ejemplo, "Existencia", 40);
+        Ejemplo(hoja, ejemplo, "Stock mínimo", 10);
+        Ejemplo(hoja, ejemplo, "País", "México");
+        Ejemplo(hoja, ejemplo, "Canal contacto 1", "WhatsApp");
+        Ejemplo(hoja, ejemplo, "Dato contacto 1", "999888777");
+        Ejemplo(hoja, ejemplo, "Canal contacto 2", "Web");
+        Ejemplo(hoja, ejemplo, "Dato contacto 2", "https://proveedor.example");
+        Ejemplo(hoja, ejemplo, "Fecha caducidad", DateTime.Today.AddMonths(8));
 
         IdermaMarca.EscribirPieTabla(hoja, ejemplo + 2, Encabezados.Length);
         hoja.SheetView.FreezeRows(fila);
@@ -79,7 +84,7 @@ public static class ExcelFichaService
             var areaTexto = Texto(fila, mapa, "area", "área");
             var area = ParsearArea(areaTexto) ?? areaPredeterminada;
 
-            fichas.Add(new FichaTecnica
+            var ficha = new FichaTecnica
             {
                 Area = area,
                 Codigo = TextoIdentificacion.Codigo(Texto(fila, mapa, "codigo", "código")),
@@ -108,6 +113,10 @@ public static class ExcelFichaService
                 TipoOrigen = Texto(fila, mapa, "tipo origen", "tipo de origen"),
                 Proveedor = Texto(fila, mapa, "proveedor", "proveedor / distribuidor"),
                 ContactoProveedor = Texto(fila, mapa, "contacto", "contacto del proveedor"),
+                ContactoCanal1 = CanalContacto(fila, mapa, "canal contacto 1", "canal 1"),
+                ContactoDato1 = Texto(fila, mapa, "dato contacto 1", "dato 1"),
+                ContactoCanal2 = CanalContacto(fila, mapa, "canal contacto 2", "canal 2"),
+                ContactoDato2 = Texto(fila, mapa, "dato contacto 2", "dato 2"),
                 Lote = Texto(fila, mapa, "lote", "lote / partida"),
                 FechaAdquisicion = Fecha(fila, mapa, "fecha adquisicion", "fecha de adquisición"),
                 NumeroFactura = Texto(fila, mapa, "factura", "numero de factura"),
@@ -144,7 +153,9 @@ public static class ExcelFichaService
                 Observaciones = Texto(fila, mapa, "observaciones"),
                 Caracteristicas = AlmacenCaracteristicas.ParsearLinea(
                     Texto(fila, mapa, "caracteristicas extra", "características extra", "caracteristicas"))
-            });
+            };
+            AplicarContactosProveedor(ficha);
+            fichas.Add(ficha);
         }
 
         var agrupadas = AgruparPorCodigo(fichas);
@@ -382,6 +393,7 @@ public static class ExcelFichaService
 
     private static void EscribirFilaDetalle(IXLRow fila, FichaTecnica f)
     {
+        var contactos = ContactosParaExcel(f);
         object?[] valores =
         [
             f.AreaTitulo, f.Codigo, f.Nombre, f.Categoria, f.Descripcion,
@@ -389,7 +401,8 @@ public static class ExcelFichaService
             f.MaterialFabricacion, f.UnidadMedida, f.Marca, f.Modelo, f.Especificaciones,
             f.NormasCertificaciones, f.CondicionesAlmacenamiento, f.InstruccionesUso, f.VidaUtil, f.Existencia,
             f.StockMinimo, f.Fabricante, f.PaisOrigen, f.PlantaOrigen, f.TipoOrigen,
-            f.Proveedor, f.ContactoProveedor, f.Lote, FechaTexto(f.FechaAdquisicion), f.NumeroFactura,
+            f.Proveedor, f.ContactoProveedor, contactos.Canal1, contactos.Dato1, contactos.Canal2, contactos.Dato2,
+            f.Lote, FechaTexto(f.FechaAdquisicion), f.NumeroFactura,
             f.RegistroSanitario, f.UsoClinico, f.Procedimiento, SiNo(f.Esteril), SiNo(f.RequiereRefrigeracion),
             f.TemperaturaAlmacenamiento, FechaTexto(f.FechaCaducidad), f.Composicion, f.RiesgoBiologico, f.Contraindicaciones,
             SiNo(f.Reutilizable), f.Ubicacion, f.NumeroSerie, f.GarantiaMeses, SiNo(f.RequiereMantenimiento),
@@ -674,6 +687,64 @@ public static class ExcelFichaService
         hoja.SheetView.FreezeRows(inicio);
         hoja.Columns().AdjustToContents();
     }
+
+    private static void Ejemplo(IXLWorksheet hoja, int fila, string encabezado, XLCellValue valor)
+    {
+        var columna = Array.IndexOf(Encabezados, encabezado);
+        if (columna >= 0)
+        {
+            hoja.Cell(fila, columna + 1).Value = valor;
+        }
+    }
+
+    private static void AplicarContactosProveedor(FichaTecnica ficha)
+    {
+        var hayCanal = !string.IsNullOrWhiteSpace(ficha.ContactoCanal1) || !string.IsNullOrWhiteSpace(ficha.ContactoCanal2);
+        var hayDato = !string.IsNullOrWhiteSpace(ficha.ContactoDato1) || !string.IsNullOrWhiteSpace(ficha.ContactoDato2);
+        if (!hayCanal && !hayDato)
+        {
+            ficha.ContactoCanal1 = CanalDatoProveedor.WhatsApp;
+            ficha.ContactoCanal2 = CanalDatoProveedor.Web;
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(ficha.ContactoCanal1))
+        {
+            ficha.ContactoCanal1 = CanalDatoProveedor.WhatsApp;
+        }
+
+        if (string.IsNullOrWhiteSpace(ficha.ContactoCanal2))
+        {
+            ficha.ContactoCanal2 = CanalDatoProveedor.Web;
+        }
+
+        ficha.ContactosProveedorDefinidos = true;
+        ficha.SincronizarCamposProveedorLegados();
+    }
+
+    private static string CanalContacto(IXLRow fila, Dictionary<string, int> mapa, params string[] nombres)
+    {
+        var texto = Texto(fila, mapa, nombres);
+        return string.IsNullOrWhiteSpace(texto) ? string.Empty : CanalDatoProveedor.Normalizar(texto);
+    }
+
+    private static (string Canal1, string Dato1, string Canal2, string Dato2) ContactosParaExcel(FichaTecnica ficha)
+    {
+        var origen = ficha.ContactosProveedorDefinidos ? ficha : ficha.Clonar();
+        if (!origen.ContactosProveedorDefinidos)
+        {
+            origen.PrepararContactosProveedor();
+        }
+
+        return (
+            CanalSiHayDato(origen.ContactoCanal1, origen.ContactoDato1),
+            origen.ContactoDato1,
+            CanalSiHayDato(origen.ContactoCanal2, origen.ContactoDato2),
+            origen.ContactoDato2);
+    }
+
+    private static string CanalSiHayDato(string canal, string dato) =>
+        string.IsNullOrWhiteSpace(dato) ? string.Empty : CanalDatoProveedor.De(canal).Titulo;
 
     private static void EstiloEncabezado(IXLRange rango)
     {

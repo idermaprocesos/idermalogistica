@@ -86,6 +86,8 @@ public static class BusquedaGlobalService
         Seccion("Registro", "Ingresos por producto y unidad", "registro", "\uE81C"),
         Seccion("Historial de precios", "Precios por producto en soles o dólares", "historial-precios", "\uE8D4"),
         Seccion("Orden de compra", "Listado, filtros y órdenes anteriores", "orden-compra", "\uE7BF"),
+        Seccion("Proveedores", "Calificación, notas y alta por mes o año", "proveedores", "\uE716"),
+        Seccion("Notificaciones", "Solicitudes de clínica: aceptar, denegar e historial", "notificaciones", "\uEA8F"),
         Seccion("Sin área", "Productos sin área operativa", AreasOperativas.EtiquetaSinArea, "\uE8F1"),
         Seccion("Generador de etiquetas", "Área logística", "etiquetas", "\uE71B"),
         Seccion("Personal médico", "Doctores y colegiatura", "recetas", "\uE716"),

@@ -117,6 +117,91 @@ public static class ExcelEtiquetaService
         return filas;
     }
 
+    public static IReadOnlyList<(string Codigo, string Nombre)> LeerCodigos(string ruta)
+    {
+        using var libro = new XLWorkbook(ruta);
+        var hoja = libro.Worksheets.FirstOrDefault()
+            ?? throw new InvalidOperationException("El archivo no tiene hojas.");
+
+        var encabezado = hoja.Row(1);
+        var ultima = Math.Max(encabezado.LastCellUsed()?.Address.ColumnNumber ?? 1, 1);
+        var columnaCodigo = 0;
+        var columnaNombre = 0;
+        var hayEncabezado = false;
+        for (var columna = 1; columna <= ultima; columna++)
+        {
+            var texto = Normalizar(encabezado.Cell(columna).GetString());
+            if (texto.Length == 0)
+            {
+                continue;
+            }
+
+            var esNombre = texto is "PRODUCTO" or "NOMBRE" or "DESCRIPCION"
+                || texto.StartsWith("NOMBRE", StringComparison.Ordinal)
+                || texto.StartsWith("PRODUCTO", StringComparison.Ordinal);
+            hayEncabezado = hayEncabezado || texto is "CODIGO" or "AREA" or "PRODUCTO" or "CANTIDAD" or "NOMBRE" or "DESCRIPCION"
+                || texto.StartsWith("CODIGO", StringComparison.Ordinal)
+                || esNombre;
+            if (columnaCodigo == 0 && (texto == "CODIGO" || texto.StartsWith("CODIGO", StringComparison.Ordinal)))
+            {
+                columnaCodigo = columna;
+            }
+
+            if (columnaNombre == 0 && esNombre)
+            {
+                columnaNombre = columna;
+            }
+        }
+
+        if (hayEncabezado && columnaCodigo == 0)
+        {
+            throw new InvalidOperationException(
+                "No se encontró la columna CÓDIGO. Ponga ese encabezado en la primera fila.");
+        }
+
+        var inicio = columnaCodigo == 0 ? 1 : 2;
+        if (columnaCodigo == 0)
+        {
+            columnaCodigo = 1;
+            if (columnaNombre == 0 && ultima >= 2)
+            {
+                columnaNombre = 2;
+            }
+        }
+
+        var filas = new List<(string Codigo, string Nombre)>();
+        var vistos = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var fila in hoja.RowsUsed().Where(f => f.RowNumber() >= inicio))
+        {
+            var codigo = TextoCelda(fila.Cell(columnaCodigo));
+            if (codigo.Length == 0 || !vistos.Add(codigo))
+            {
+                continue;
+            }
+
+            var nombre = columnaNombre == 0 ? string.Empty : TextoCelda(fila.Cell(columnaNombre));
+            filas.Add((codigo, nombre));
+        }
+
+        if (filas.Count == 0)
+        {
+            throw new InvalidOperationException("La columna CÓDIGO no tiene códigos para exportar.");
+        }
+
+        return filas;
+    }
+
+    private static string TextoCelda(IXLCell celda)
+    {
+        var texto = celda.GetString().Trim();
+        if (texto.Length == 0)
+        {
+            texto = celda.GetFormattedString().Trim();
+        }
+
+        return texto;
+    }
+
     private static bool TryCantidad(IXLCell celda, out int cantidad)
     {
         cantidad = 0;

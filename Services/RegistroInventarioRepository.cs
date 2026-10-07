@@ -69,6 +69,7 @@ public sealed class RegistroInventarioRepository
             _movimientos.AddRange(lote);
             Guardar();
             ReconstruirIndice();
+            ModulosNube.PublicarRegistro(lote.Select(Clonar).ToList(), []);
         }
     }
 
@@ -102,6 +103,29 @@ public sealed class RegistroInventarioRepository
                 .OrderByDescending(a => a)
                 .ToList();
         }
+    }
+
+    public IReadOnlyList<MovimientoInventario> IngresosEntre(DateTime desde, DateTime hasta)
+    {
+        var inicio = desde.Date;
+        var fin = hasta.Date;
+        if (fin < inicio)
+        {
+            (inicio, fin) = (fin, inicio);
+        }
+
+        lock (_sync)
+        {
+            return _movimientos
+                .Where(m => !m.EsSalida && m.Cantidad > 0.0001 && EnDia(m.Fecha, inicio, fin))
+                .ToList();
+        }
+    }
+
+    private static bool EnDia(DateTimeOffset fecha, DateTime inicio, DateTime fin)
+    {
+        var dia = fecha.ToLocalTime().Date;
+        return dia >= inicio && dia <= fin;
     }
 
     public IReadOnlyList<MovimientoInventario> PorFicha(
@@ -146,6 +170,7 @@ public sealed class RegistroInventarioRepository
             Guardar();
             ReconstruirIndice();
             ReciboMovimientoService.EliminarVarios(ids);
+            ModulosNube.PublicarRegistro([], [], true);
         }
     }
 
@@ -159,6 +184,7 @@ public sealed class RegistroInventarioRepository
             SembrarDesdeCatalogo();
             Guardar();
             ReconstruirIndice();
+            ModulosNube.PublicarRegistro(_movimientos.Select(Clonar).ToList(), [], true);
         }
     }
 
@@ -180,6 +206,7 @@ public sealed class RegistroInventarioRepository
         lock (_sync)
         {
             var deFicha = _movimientos.Where(m => m.FichaId == fichaId).Select(Clonar).ToList();
+            var antes = deFicha.ToDictionary(m => m.Id, Clonar);
             var inicial = existenciaActual - deFicha.Sum(m => m.EfectoExistencia);
             var idsAntes = deFicha.Select(m => m.Id).ToHashSet();
             mutar(deFicha);
@@ -205,6 +232,11 @@ public sealed class RegistroInventarioRepository
             Guardar();
             ReconstruirIndice();
             ReciboMovimientoService.EliminarVarios(idsAntes.Except(idsDespues));
+            var cambiados = deFicha
+                .Where(m => !antes.TryGetValue(m.Id, out var previo) || !Igual(previo, m) || previo.RutaRecibo != m.RutaRecibo)
+                .Select(Clonar)
+                .ToList();
+            ModulosNube.PublicarRegistro(cambiados, idsAntes.Except(idsDespues).ToList());
             existenciaNueva = stock;
             error = null;
             return true;
@@ -254,8 +286,83 @@ public sealed class RegistroInventarioRepository
             Guardar();
             ReconstruirIndice();
             ReciboMovimientoService.EliminarVarios(idsMovimientos);
+            ModulosNube.PublicarRegistro([], idsMovimientos);
         }
     }
+
+    public List<MovimientoInventario> CopiarTodos()
+    {
+        lock (_sync)
+        {
+            return _movimientos.Select(Clonar).ToList();
+        }
+    }
+
+    public bool AplicarDesdeNube(IReadOnlyList<MovimientoInventario> cambios, IReadOnlyCollection<Guid> eliminados, bool reemplazar)
+    {
+        var huboCambio = false;
+        lock (_sync)
+        {
+            if (reemplazar)
+            {
+                _movimientos.Clear();
+                _movimientos.AddRange(cambios.Select(Clonar));
+                huboCambio = true;
+            }
+            else
+            {
+                var ids = eliminados.ToHashSet();
+                if (_movimientos.RemoveAll(m => ids.Contains(m.Id)) > 0)
+                {
+                    huboCambio = true;
+                }
+
+                foreach (var cambio in cambios)
+                {
+                    var indice = _movimientos.FindIndex(m => m.Id == cambio.Id);
+                    if (indice >= 0)
+                    {
+                        if (Igual(_movimientos[indice], cambio))
+                        {
+                            continue;
+                        }
+
+                        _movimientos[indice] = Clonar(cambio);
+                    }
+                    else
+                    {
+                        _movimientos.Add(Clonar(cambio));
+                    }
+
+                    huboCambio = true;
+                }
+            }
+
+            if (huboCambio)
+            {
+                Guardar();
+                ReconstruirIndice();
+            }
+        }
+
+        return huboCambio;
+    }
+
+    private static bool Igual(MovimientoInventario actual, MovimientoInventario cambio) =>
+        actual.FichaId == cambio.FichaId
+        && actual.PartidaId == cambio.PartidaId
+        && actual.Area == cambio.Area
+        && actual.Cantidad == cambio.Cantidad
+        && actual.ExistenciaResultante == cambio.ExistenciaResultante
+        && actual.Fecha == cambio.Fecha
+        && actual.FechaCaducidad == cambio.FechaCaducidad
+        && actual.Tipo == cambio.Tipo
+        && actual.Origen == cambio.Origen
+        && actual.Lote == cambio.Lote
+        && actual.TipoDocumento == cambio.TipoDocumento
+        && actual.NumeroDocumento == cambio.NumeroDocumento
+        && actual.Nota == cambio.Nota
+        && actual.NombreRecibo == cambio.NombreRecibo;
 
     private void SembrarDesdeCatalogo()
     {

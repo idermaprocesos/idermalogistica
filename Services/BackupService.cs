@@ -35,6 +35,7 @@ public sealed class BackupService
             CopiarSiExiste(App.Instance.Registro.RutaArchivo, Path.Combine(destino, "registro-ingresos.json"));
             CopiarSiExiste(App.Instance.HistorialPrecios.RutaArchivo, Path.Combine(destino, "historial-precios.json"));
             CopiarSiExiste(App.Instance.OrdenesCompra.RutaArchivo, Path.Combine(destino, "ordenes-compra.json"));
+            CopiarSiExiste(App.Instance.Proveedores.RutaArchivo, Path.Combine(destino, "proveedores.json"));
 
             var incluyeImagenes = forzarImagenes || preferencias.CopiasIncluyenImagenes;
             if (incluyeImagenes && Directory.Exists(ImagenFichaService.Carpeta))
@@ -215,6 +216,12 @@ public sealed class BackupService
                 if (File.Exists(ordenesCopia))
                 {
                     RestaurarArchivo(ordenesCopia, App.Instance.OrdenesCompra.RutaArchivo);
+                }
+
+                var proveedoresCopia = Path.Combine(ruta, "proveedores.json");
+                if (File.Exists(proveedoresCopia))
+                {
+                    RestaurarArchivo(proveedoresCopia, App.Instance.Proveedores.RutaArchivo);
                 }
 
                 var imagenes = Path.Combine(ruta, "imagenes-fichas");

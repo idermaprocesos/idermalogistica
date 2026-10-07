@@ -96,6 +96,7 @@ public sealed class OrdenesCompraRepository
             }
 
             GuardarInterno();
+            ModulosNube.PublicarOrden(orden);
         }
 
         Cambio?.Invoke(this, EventArgs.Empty);
@@ -112,6 +113,7 @@ public sealed class OrdenesCompraRepository
             }
 
             GuardarInterno();
+            ModulosNube.EliminarOrden(id);
         }
 
         Cambio?.Invoke(this, EventArgs.Empty);
@@ -122,5 +124,59 @@ public sealed class OrdenesCompraRepository
     {
         Directory.CreateDirectory(Path.GetDirectoryName(RutaArchivo)!);
         ArchivoAtomico.EscribirTexto(RutaArchivo, JsonSerializer.Serialize(_ordenes, JsonOptions));
+    }
+
+    public bool AplicarDesdeNube(IReadOnlyList<OrdenCompraRegistrada> cambios, IReadOnlyCollection<Guid> eliminados, bool reemplazar)
+    {
+        var huboCambio = false;
+        lock (_candado)
+        {
+            if (reemplazar)
+            {
+                _ordenes.Clear();
+                _ordenes.AddRange(cambios.Where(o => o.Documento is not null));
+                huboCambio = true;
+            }
+            else
+            {
+                var ids = eliminados.ToHashSet();
+                if (_ordenes.RemoveAll(o => ids.Contains(o.Id)) > 0)
+                {
+                    huboCambio = true;
+                }
+
+                foreach (var cambio in cambios)
+                {
+                    if (cambio.Documento is null)
+                    {
+                        continue;
+                    }
+
+                    var indice = _ordenes.FindIndex(o => o.Id == cambio.Id);
+                    if (indice >= 0)
+                    {
+                        _ordenes[indice] = cambio;
+                    }
+                    else
+                    {
+                        _ordenes.Add(cambio);
+                    }
+
+                    huboCambio = true;
+                }
+            }
+
+            if (huboCambio)
+            {
+                GuardarInterno();
+            }
+        }
+
+        if (huboCambio)
+        {
+            Cambio?.Invoke(this, EventArgs.Empty);
+        }
+
+        return huboCambio;
     }
 }

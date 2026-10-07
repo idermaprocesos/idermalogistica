@@ -3,13 +3,14 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Navigation;
+using IdermaFichas.Helpers;
 using IdermaFichas.Models;
 using IdermaFichas.Services;
 using Windows.UI;
 
 namespace IdermaFichas.Pages;
 
-public sealed partial class HomePage : Page
+public sealed partial class HomePage : Page, IVistaInventario
 {
     private static readonly CultureInfo Cultura = CultureInfo.GetCultureInfo("es-MX");
     private readonly DispatcherTimer _reloj = new() { Interval = TimeSpan.FromSeconds(30) };
@@ -22,7 +23,9 @@ public sealed partial class HomePage : Page
         Unloaded += (_, _) => _reloj.Stop();
     }
 
-    protected override void OnNavigatedTo(NavigationEventArgs e)
+    protected override void OnNavigatedTo(NavigationEventArgs e) => AplicarCambioInventario();
+
+    public void AplicarCambioInventario()
     {
         ActualizarSaludo();
         var repo = App.Instance.Repositorio;
@@ -84,18 +87,23 @@ public sealed partial class HomePage : Page
             ? $"Última edición: {fecha.ToLocalTime():dd/MM/yyyy HH:mm}"
             : "Sin movimientos";
 
+        var ultimoMovimiento = UltimosMovimientosLocales();
         var recientes = todas
             .OrderByDescending(f => f.FechaActualizacion)
             .Take(8)
             .Select(f => new FichaRecienteVista
             {
                 Ficha = f,
-                ActualizadoTexto = f.FechaActualizacion.ToLocalTime().ToString("dd/MM HH:mm")
+                ActualizadoTexto = f.FechaActualizacion.ToLocalTime().ToString("dd/MM HH:mm"),
+                Explicacion = ExplicarLocal(f, ultimoMovimiento.GetValueOrDefault(f.Id))
             })
             .ToList();
         ListaRecientes.ItemsSource = recientes;
 
         TextoResumenDia.Text = ArmarResumen(total, vencidos, proximos, stockBajo);
+        TextoNube.Text = string.IsNullOrWhiteSpace(ModulosNube.Estado)
+            ? InventarioNube.Estado
+            : InventarioNube.Estado + "\n" + ModulosNube.Estado;
     }
 
     private void ActualizarSaludo()
@@ -306,14 +314,64 @@ public sealed partial class HomePage : Page
     private void AbrirStockBajo_Click(object sender, RoutedEventArgs e) =>
         App.Instance.MainAppWindow?.IrACatalogo(new CatalogoNavegacion(Stock: FiltroStockCatalogo.Critico));
 
-    private void ListaRecientes_ItemClick(object sender, ItemClickEventArgs e)
+    private async void ListaRecientes_ItemClick(object sender, ItemClickEventArgs e)
     {
-        var ficha = e.ClickedItem as FichaTecnica
-                    ?? (e.ClickedItem as FichaRecienteVista)?.Ficha;
-        if (ficha is not null)
+        if (e.ClickedItem is not FichaRecienteVista fila)
         {
-            App.Instance.MainAppWindow?.IrAArea(ficha.Area, ficha.Id);
+            return;
         }
+
+        var dialogo = new ContentDialog
+        {
+            Title = fila.Nombre,
+            Content = new TextBlock
+            {
+                Text = fila.Explicacion,
+                TextWrapping = TextWrapping.Wrap,
+                MaxWidth = 460
+            },
+            CloseButtonText = "Cerrar",
+            XamlRoot = XamlRoot
+        };
+        await dialogo.ShowAsync();
+    }
+
+    private static Dictionary<Guid, MovimientoInventario> UltimosMovimientosLocales()
+    {
+        var ultimos = new Dictionary<Guid, MovimientoInventario>();
+        foreach (var movimiento in App.Instance.Registro.CopiarTodos())
+        {
+            if (!ultimos.TryGetValue(movimiento.FichaId, out var anterior) || movimiento.Fecha > anterior.Fecha)
+            {
+                ultimos[movimiento.FichaId] = movimiento;
+            }
+        }
+
+        return ultimos;
+    }
+
+    private static string ExplicarLocal(FichaTecnica ficha, MovimientoInventario? ultimo)
+    {
+        var unidad = string.IsNullOrWhiteSpace(ficha.UnidadMedida) ? string.Empty : " " + ficha.UnidadMedida.Trim();
+        var existencia = ficha.Existencia.ToString("0.##", Cultura);
+        var stock = ficha.StockMinimo > 0
+            ? ficha.EstaStockCritico
+                ? $"En este equipo hay {existencia}{unidad}, en o bajo el mínimo de {ficha.StockMinimo.ToString("0.##", Cultura)}."
+                : $"En este equipo hay {existencia}{unidad}, por encima del mínimo de {ficha.StockMinimo.ToString("0.##", Cultura)}."
+            : $"En este equipo hay {existencia}{unidad}. No tiene mínimo definido.";
+
+        var caducidad = ficha.EstaVencido
+            ? "Hay un lote vencido en la copia local."
+            : ficha.EstaProximoAVencer
+                ? "Hay un lote que vence en los próximos 30 días, según la copia local."
+                : "La copia local no marca caducidad vencida ni próxima.";
+
+        var movimiento = ultimo is null
+            ? "No hay entradas ni salidas de este producto en el registro de este equipo."
+            : $"Último movimiento guardado aquí: {ultimo.DocumentoResumen}, {ultimo.Cantidad.ToString("0.##", Cultura)}{unidad}, el {ultimo.Fecha.ToLocalTime():dd/MM/yyyy HH:mm}. Después quedaron {ultimo.ExistenciaResultante.ToString("0.##", Cultura)}{unidad}.";
+
+        var edicion = $"La ficha se editó en este equipo el {ficha.FechaActualizacion.ToLocalTime():dd/MM/yyyy HH:mm}.";
+        return $"{stock} {caducidad} {movimiento} {edicion}";
     }
 }
 
@@ -332,9 +390,9 @@ public sealed class FichaRecienteVista
 {
     public required FichaTecnica Ficha { get; init; }
     public required string ActualizadoTexto { get; init; }
+    public required string Explicacion { get; init; }
     public string Codigo => Ficha.Codigo;
     public string Nombre => Ficha.Nombre;
-    public string Resumen => Ficha.Resumen;
     public string AreaTitulo => Ficha.AreaTitulo;
     public string Existencia => Ficha.Existencia.ToString("0.##");
     public string FechaActualizacion => ActualizadoTexto;

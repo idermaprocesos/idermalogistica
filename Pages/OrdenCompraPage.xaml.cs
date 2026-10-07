@@ -11,7 +11,7 @@ using IdermaFichas.Services;
 
 namespace IdermaFichas.Pages;
 
-public sealed partial class OrdenCompraPage : Page
+public sealed partial class OrdenCompraPage : Page, IVistaInventario
 {
     private static readonly CultureInfo Cultura = CultureInfo.GetCultureInfo("es-PE");
     private readonly DispatcherTimer _relojBusqueda = new() { Interval = TimeSpan.FromMilliseconds(180) };
@@ -370,6 +370,13 @@ public sealed partial class OrdenCompraPage : Page
 
     private string PeriodoActual() =>
         FiltroPeriodoIngresos.Describir(AnioParaFiltro(), MesesParaFiltro(), DesdeActual(), _atajoMeses);
+
+    public void AplicarCambioInventario()
+    {
+        ConstruirChips();
+        RefrescarLista();
+        AnimacionLista.Revelar(ListaProductos);
+    }
 
     private void RefrescarLista()
     {

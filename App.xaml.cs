@@ -1,4 +1,4 @@
-﻿using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml;
 using IdermaFichas.Models;
 using IdermaFichas.Services;
 
@@ -28,6 +28,8 @@ public partial class App : Application
         {
             // El archivo dañado ya se aparta en Cargar; no se sustituye por ejemplos.
         }
+
+        InventarioNube.Preparar(Repositorio);
 
         try
         {
@@ -78,6 +80,16 @@ public partial class App : Application
 
         try
         {
+            Proveedores.Cargar();
+        }
+        catch
+        {
+            Proveedores = new ProveedoresRepository();
+            Proveedores.Cargar();
+        }
+
+        try
+        {
             PersonalMedico.Cargar();
         }
         catch
@@ -100,6 +112,8 @@ public partial class App : Application
     public HistorialPreciosRepository HistorialPrecios { get; private set; } = new();
 
     public OrdenesCompraRepository OrdenesCompra { get; private set; } = new();
+
+    public ProveedoresRepository Proveedores { get; private set; } = new();
 
     public RhRepository Rh { get; private set; } = new();
 
@@ -165,6 +179,16 @@ public partial class App : Application
 
         try
         {
+            Instance.Proveedores.Cargar();
+        }
+        catch
+        {
+            Instance.Proveedores = new ProveedoresRepository();
+            Instance.Proveedores.Cargar();
+        }
+
+        try
+        {
             Instance.PersonalMedico.Cargar();
         }
         catch
@@ -174,6 +198,7 @@ public partial class App : Application
         }
 
         Instance.MainAppWindow?.ActualizarMenuAreas();
+        InventarioNube.ReemplazarCon(Instance.Repositorio);
     }
 
     protected override void OnLaunched(LaunchActivatedEventArgs args)

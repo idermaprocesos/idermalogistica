@@ -15,7 +15,7 @@ using Windows.Storage.Pickers;
 
 namespace IdermaFichas.Pages;
 
-public sealed partial class AreaPage : Page, IEdicionProducto
+public sealed partial class AreaPage : Page, IEdicionProducto, IVistaInventario
 {
     private static readonly JsonSerializerOptions JsonHuella = new()
     {
@@ -37,6 +37,8 @@ public sealed partial class AreaPage : Page, IEdicionProducto
     private readonly DispatcherTimer _relojBusqueda = new() { Interval = TimeSpan.FromMilliseconds(180) };
     private readonly DispatcherTimer _relojGuardadoFondo = new() { Interval = TimeSpan.FromSeconds(15) };
     private bool _guardandoEnFondo;
+    private bool _seleccionandoCatalogo;
+    private readonly HashSet<ComboBox> _esperaSeleccion = [];
     private double _existenciaAlAbrir;
     private string _huellaPartidasAlAbrir = string.Empty;
     private bool _actualizandoHistorialProveedor;
@@ -55,11 +57,16 @@ public sealed partial class AreaPage : Page, IEdicionProducto
             _relojBusqueda.Stop();
             RefrescarLista(_enEdicion?.Id);
         };
-        Formulario.SelectionChanged += (_, _) => ProtegerControlesDeRueda(Formulario);
+        Formulario.SelectionChanged += (_, _) =>
+        {
+            ProtegerControlesDeRueda(Formulario);
+            DispatcherQueue.TryEnqueue(SeleccionarValoresCatalogo);
+        };
         Loaded += (_, _) =>
         {
             ProtegerControlesDeRueda(Formulario);
             _relojSucio.Start();
+            DispatcherQueue.TryEnqueue(SeleccionarValoresCatalogo);
         };
         Unloaded += (_, _) =>
         {
@@ -92,17 +99,17 @@ public sealed partial class AreaPage : Page, IEdicionProducto
         ComboOrden.ItemsSource = OrdenFichas.Opciones.Select(o => o.Texto).ToList();
         ComboOrden.SelectedIndex = OrdenFichas.IndicePredeterminado;
 
-        ComboCategoria.ItemsSource = Catalogos.Obtener(_area, Catalogos.CampoCategorias);
-        ComboUnidad.ItemsSource = Catalogos.Obtener(_area, Catalogos.CampoUnidades);
-        ComboEstadoFisico.ItemsSource = Catalogos.Obtener(_area, Catalogos.CampoEstados);
-        ComboPresentacion.ItemsSource = Catalogos.Obtener(_area, Catalogos.CampoPresentaciones);
-        ComboVidaUtil.ItemsSource = Catalogos.Obtener(_area, Catalogos.CampoVidasUtil);
-        ComboPais.ItemsSource = Catalogos.Obtener(_area, Catalogos.CampoPaises);
-        ComboOrigen.ItemsSource = Catalogos.Obtener(_area, Catalogos.CampoTiposOrigen);
-        ComboProcedimiento.ItemsSource = Catalogos.Obtener(_area, Catalogos.CampoProcedimientos);
-        ComboRiesgo.ItemsSource = Catalogos.Obtener(_area, Catalogos.CampoRiesgos);
-        ComboTemperatura.ItemsSource = Catalogos.Obtener(_area, Catalogos.CampoTemperaturas);
-        ComboPeligrosidad.ItemsSource = Catalogos.Obtener(_area, Catalogos.CampoPeligrosidad);
+        ComboCategoria.ItemsSource = OpcionesCombo(Catalogos.CampoCategorias, string.Empty);
+        ComboUnidad.ItemsSource = OpcionesCombo(Catalogos.CampoUnidades, string.Empty);
+        ComboEstadoFisico.ItemsSource = OpcionesCombo(Catalogos.CampoEstados, string.Empty);
+        ComboPresentacion.ItemsSource = OpcionesCombo(Catalogos.CampoPresentaciones, string.Empty);
+        ComboVidaUtil.ItemsSource = OpcionesCombo(Catalogos.CampoVidasUtil, string.Empty);
+        ComboPais.ItemsSource = OpcionesCombo(Catalogos.CampoPaises, string.Empty);
+        ComboOrigen.ItemsSource = OpcionesCombo(Catalogos.CampoTiposOrigen, string.Empty);
+        ComboProcedimiento.ItemsSource = OpcionesCombo(Catalogos.CampoProcedimientos, string.Empty);
+        ComboRiesgo.ItemsSource = OpcionesCombo(Catalogos.CampoRiesgos, string.Empty);
+        ComboTemperatura.ItemsSource = OpcionesCombo(Catalogos.CampoTemperaturas, string.Empty);
+        ComboPeligrosidad.ItemsSource = OpcionesCombo(Catalogos.CampoPeligrosidad, string.Empty);
         ComboCanalDato1.ItemsSource = CanalDatoProveedor.Opciones;
         ComboCanalDato2.ItemsSource = CanalDatoProveedor.Opciones;
 
@@ -119,6 +126,23 @@ public sealed partial class AreaPage : Page, IEdicionProducto
         ListaCaracteristicas.ItemsSource = _caracteristicas;
         ListaPartidas.ItemsSource = _partidas;
         RefrescarLista(_fichaInicial, recargarEditor: true);
+    }
+
+    public void AplicarCambioInventario()
+    {
+        CargarOpcionesArea();
+        var id = _enEdicion?.Id;
+        var sigue = id is Guid fichaId && App.Instance.Repositorio.Obtener(fichaId) is not null;
+        if (_enEdicion is not null && !sigue && !HayCambiosPendientes)
+        {
+            RefrescarLista();
+            OcultarFormulario();
+            AnimacionLista.Revelar(ListaFichas);
+            return;
+        }
+
+        RefrescarLista(id, recargarEditor: sigue && !HayCambiosPendientes);
+        AnimacionLista.Revelar(ListaFichas);
     }
 
     private static Visibility VisibleSi(bool condicion) =>
@@ -762,6 +786,7 @@ public sealed partial class AreaPage : Page, IEdicionProducto
         ContenedorFormulario.Visibility = Visibility.Visible;
         ProtegerControlesDeRueda(Formulario);
         _ = ActualizarPreviewImagenAsync();
+        DispatcherQueue.TryEnqueue(SeleccionarValoresCatalogo);
         DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, FijarHuellaOriginal);
     }
 
@@ -1352,7 +1377,8 @@ public sealed partial class AreaPage : Page, IEdicionProducto
         var ruta = control switch
         {
             TextBox caja => caja.GetBindingExpression(TextBox.TextProperty)?.ParentBinding?.Path?.Path,
-            ComboBox combo => combo.GetBindingExpression(ComboBox.TextProperty)?.ParentBinding?.Path?.Path,
+            ComboBox combo => combo.GetBindingExpression(ComboBox.SelectedItemProperty)?.ParentBinding?.Path?.Path
+                ?? combo.GetBindingExpression(ComboBox.TextProperty)?.ParentBinding?.Path?.Path,
             _ => null
         };
         if (string.IsNullOrEmpty(ruta) || control.DataContext is null)
@@ -1373,6 +1399,162 @@ public sealed partial class AreaPage : Page, IEdicionProducto
         }
 
         return fecha.DataContext.GetType().GetProperty(ruta)?.GetValue(fecha.DataContext) is DateTimeOffset;
+    }
+
+    private IEnumerable<ComboBox> CombosDePestanaVisible()
+    {
+        if (Formulario.SelectedItem is not PivotItem pestana)
+        {
+            yield break;
+        }
+
+        var titulo = pestana.Header?.ToString();
+        if (titulo == "Identificación")
+        {
+            yield return ComboCategoria;
+            yield return ComboUnidad;
+            yield return ComboEstadoFisico;
+            yield return ComboPresentacion;
+        }
+        else if (titulo == "Técnicas")
+        {
+            yield return ComboVidaUtil;
+        }
+        else if (titulo == "Procedencia")
+        {
+            yield return ComboPais;
+            yield return ComboOrigen;
+        }
+        else if (ReferenceEquals(pestana, PivotArea))
+        {
+            yield return ComboProcedimiento;
+            yield return ComboRiesgo;
+            yield return ComboTemperatura;
+            yield return ComboPeligrosidad;
+        }
+    }
+
+    private void SeleccionarValoresCatalogo()
+    {
+        if (_enEdicion is null || _seleccionandoCatalogo)
+        {
+            return;
+        }
+
+        _seleccionandoCatalogo = true;
+        try
+        {
+            foreach (var combo in CombosDePestanaVisible())
+            {
+                if (!combo.IsLoaded)
+                {
+                    if (_esperaSeleccion.Add(combo))
+                    {
+                        RoutedEventHandler? alCargar = null;
+                        alCargar = (_, _) =>
+                        {
+                            combo.Loaded -= alCargar;
+                            _esperaSeleccion.Remove(combo);
+                            SeleccionarValoresCatalogo();
+                        };
+                        combo.Loaded += alCargar;
+                    }
+
+                    continue;
+                }
+
+                var campo = CampoCatalogo(combo);
+                if (campo is null)
+                {
+                    continue;
+                }
+
+                var valor = ValorCatalogo(combo) ?? string.Empty;
+                var opciones = OpcionesCombo(campo, valor);
+                combo.ItemsSource = opciones;
+                if (valor.Length == 0)
+                {
+                    combo.SelectedItem = null;
+                    continue;
+                }
+
+                var coincidencia = opciones.FirstOrDefault(o =>
+                    o.Equals(valor, StringComparison.CurrentCultureIgnoreCase));
+                if (coincidencia is not null)
+                {
+                    combo.SelectedItem = coincidencia;
+                }
+            }
+        }
+        finally
+        {
+            _seleccionandoCatalogo = false;
+        }
+    }
+
+    private string? CampoCatalogo(ComboBox caja)
+    {
+        if (ReferenceEquals(caja, ComboCategoria)) return Catalogos.CampoCategorias;
+        if (ReferenceEquals(caja, ComboUnidad)) return Catalogos.CampoUnidades;
+        if (ReferenceEquals(caja, ComboEstadoFisico)) return Catalogos.CampoEstados;
+        if (ReferenceEquals(caja, ComboPresentacion)) return Catalogos.CampoPresentaciones;
+        if (ReferenceEquals(caja, ComboVidaUtil)) return Catalogos.CampoVidasUtil;
+        if (ReferenceEquals(caja, ComboPais)) return Catalogos.CampoPaises;
+        if (ReferenceEquals(caja, ComboOrigen)) return Catalogos.CampoTiposOrigen;
+        if (ReferenceEquals(caja, ComboProcedimiento)) return Catalogos.CampoProcedimientos;
+        if (ReferenceEquals(caja, ComboRiesgo)) return Catalogos.CampoRiesgos;
+        if (ReferenceEquals(caja, ComboTemperatura)) return Catalogos.CampoTemperaturas;
+        if (ReferenceEquals(caja, ComboPeligrosidad)) return Catalogos.CampoPeligrosidad;
+        return null;
+    }
+
+    private string? ValorCatalogo(ComboBox caja)
+    {
+        if (_enEdicion is null)
+        {
+            return null;
+        }
+
+        if (ReferenceEquals(caja, ComboCategoria)) return _enEdicion.Categoria;
+        if (ReferenceEquals(caja, ComboUnidad)) return _enEdicion.UnidadMedida;
+        if (ReferenceEquals(caja, ComboEstadoFisico)) return _enEdicion.EstadoFisico;
+        if (ReferenceEquals(caja, ComboPresentacion)) return _enEdicion.Presentacion;
+        if (ReferenceEquals(caja, ComboVidaUtil)) return _enEdicion.VidaUtil;
+        if (ReferenceEquals(caja, ComboPais)) return _enEdicion.PaisOrigen;
+        if (ReferenceEquals(caja, ComboOrigen)) return _enEdicion.TipoOrigen;
+        if (ReferenceEquals(caja, ComboProcedimiento)) return _enEdicion.Procedimiento;
+        if (ReferenceEquals(caja, ComboRiesgo)) return _enEdicion.RiesgoBiologico;
+        if (ReferenceEquals(caja, ComboTemperatura)) return _enEdicion.TemperaturaAlmacenamiento;
+        if (ReferenceEquals(caja, ComboPeligrosidad)) return _enEdicion.Peligrosidad;
+        return null;
+    }
+
+    private List<string> OpcionesCombo(string campo, string textoActual)
+    {
+        var opciones = Catalogos.Obtener(_area, campo)
+            .Where(v => !string.IsNullOrWhiteSpace(v))
+            .Distinct(StringComparer.CurrentCultureIgnoreCase)
+            .ToList();
+
+        if (campo == Catalogos.CampoPaises && !opciones.Exists(EsPeru))
+        {
+            opciones.Insert(0, "Perú");
+        }
+
+        if (textoActual.Length > 0 &&
+            !opciones.Exists(v => v.Equals(textoActual, StringComparison.CurrentCultureIgnoreCase)))
+        {
+            opciones.Insert(0, textoActual);
+        }
+
+        return opciones;
+    }
+
+    private static bool EsPeru(string valor)
+    {
+        var texto = valor.Trim();
+        return texto.Equals("Perú", StringComparison.CurrentCultureIgnoreCase)
+            || texto.Equals("Peru", StringComparison.CurrentCultureIgnoreCase);
     }
 
     private void ProtegerControlesDeRueda(DependencyObject? raiz)

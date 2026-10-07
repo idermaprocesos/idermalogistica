@@ -85,6 +85,16 @@
                         <FontIcon Glyph="&#xE7BF;" />
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
+                <NavigationViewItem x:Name="ItemProveedores" Content="Proveedores" Tag="proveedores">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE716;" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
+                <NavigationViewItem x:Name="ItemNotificaciones" Content="Notificaciones" Tag="notificaciones">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xEA8F;" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
                 <NavigationViewItemHeader Content="Áreas operativas" />
                 <NavigationViewItem Content="Clínica" Tag="clinica">
                     <NavigationViewItem.Icon>

@@ -139,6 +139,10 @@ public static class Catalogos
         }
 
         MigrarClavesAntiguas(cargadas);
+        if (AsegurarPeru())
+        {
+            Guardar();
+        }
     }
 
     public static void Guardar()
@@ -214,6 +218,36 @@ public static class Catalogos
         Guardar();
     }
 
+    private static bool AsegurarPeru()
+    {
+        var cambio = false;
+        foreach (var clave in _listas.Keys.ToList())
+        {
+            if (clave != CampoPaises && !clave.EndsWith("_" + CampoPaises, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            var lista = _listas[clave];
+            if (lista.Any(EsPeru))
+            {
+                continue;
+            }
+
+            lista.Insert(0, "Perú");
+            cambio = true;
+        }
+
+        return cambio;
+    }
+
+    private static bool EsPeru(string valor)
+    {
+        var texto = valor.Trim();
+        return texto.Equals("Perú", StringComparison.CurrentCultureIgnoreCase)
+            || texto.Equals("Peru", StringComparison.CurrentCultureIgnoreCase);
+    }
+
     private static void CopiarSiFalta(string origen, string destino, Dictionary<string, List<string>> cargadas)
     {
         if (cargadas.TryGetValue(destino, out var ya) && ya.Count > 0)
@@ -261,7 +295,7 @@ public static class Catalogos
         var vidas = new List<string> { "12 meses", "24 meses", "36 meses", "5 años", "Hasta agotar ciclos", "Indefinida en almacén" };
         var paises = new List<string>
         {
-            "México", "Colombia", "España", "Estados Unidos", "Alemania", "Brasil", "China",
+            "Perú", "México", "Colombia", "España", "Estados Unidos", "Alemania", "Brasil", "China",
             "India", "Francia", "Italia", "Corea del Sur", "Japón", "Suiza", "Reino Unido"
         };
         var origenes = new List<string> { "Nacional", "Importado", "Ensamblado localmente" };

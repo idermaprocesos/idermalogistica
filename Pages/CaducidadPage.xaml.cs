@@ -1,11 +1,12 @@
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Navigation;
+using IdermaFichas.Helpers;
 using IdermaFichas.Models;
 using IdermaFichas.Services;
 
 namespace IdermaFichas.Pages;
 
-public sealed partial class CaducidadPage : Page
+public sealed partial class CaducidadPage : Page, IVistaInventario
 {
     private static readonly OpcionHorizonte[] Horizontes =
     [
@@ -55,6 +56,13 @@ public sealed partial class CaducidadPage : Page
         }
 
         Refrescar();
+    }
+
+    public void AplicarCambioInventario()
+    {
+        Refrescar();
+        AnimacionLista.Revelar(ListaVencidos);
+        AnimacionLista.Revelar(ListaProximos);
     }
 
     private void Refrescar()

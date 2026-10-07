@@ -10,7 +10,7 @@ using IdermaFichas.Services;
 
 namespace IdermaFichas.Pages;
 
-public sealed partial class HistorialPreciosPage : Page
+public sealed partial class HistorialPreciosPage : Page, IVistaInventario
 {
     private List<FichaPrecioListaItem> _visibles = [];
     private List<OpcionFiltroCatalogo> _opcionesArea = [];
@@ -145,6 +145,16 @@ public sealed partial class HistorialPreciosPage : Page
         Refrescar();
     }
 
+    public void AplicarCambioInventario()
+    {
+        _actualizandoFiltros = true;
+        CargarOpcionesArea();
+        _actualizandoFiltros = false;
+        Refrescar();
+        AnimacionLista.Revelar(ListaProductos);
+        AnimacionLista.Revelar(ListaPrecios);
+    }
+
     private void Refrescar()
     {
         if (ComboOrden.SelectedIndex < 0 || ComboStock.SelectedIndex < 0 || ComboCaducidad.SelectedIndex < 0)
@@ -205,6 +215,9 @@ public sealed partial class HistorialPreciosPage : Page
 
     private void CargarOpcionesArea()
     {
+        var anterior = ComboArea.SelectedIndex >= 0 && ComboArea.SelectedIndex < _opcionesArea.Count
+            ? _opcionesArea[ComboArea.SelectedIndex]
+            : null;
         _opcionesArea =
         [
             new("Todas las áreas", null, false)
@@ -212,7 +225,10 @@ public sealed partial class HistorialPreciosPage : Page
         _opcionesArea.AddRange(AreasOperativas.Todas.Select(a => new OpcionFiltroCatalogo(a.Nombre, a.Id, false)));
         _opcionesArea.Add(new("Sin área", null, true));
         ComboArea.ItemsSource = _opcionesArea.Select(o => o.Texto).ToList();
-        ComboArea.SelectedIndex = 0;
+        var indice = anterior is null
+            ? 0
+            : _opcionesArea.FindIndex(o => o.SinArea == anterior.SinArea && o.Id == anterior.Id);
+        ComboArea.SelectedIndex = indice >= 0 ? indice : 0;
     }
 
     private (Guid? Area, bool SinArea) FiltroAreaActual()

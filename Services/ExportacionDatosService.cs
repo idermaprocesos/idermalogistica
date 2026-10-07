@@ -50,6 +50,7 @@ public static class ExportacionDatosService
                 CopiarSiExiste(App.Instance.Repositorio.RutaArchivo, Path.Combine(temporal, "fichas-tecnicas.json"));
                 CopiarSiExiste(App.Instance.HistorialPrecios.RutaArchivo, Path.Combine(temporal, "historial-precios.json"));
                 CopiarSiExiste(AlmacenHistorialProveedores.RutaArchivo, Path.Combine(temporal, "historial-proveedores.json"));
+                CopiarSiExiste(App.Instance.Proveedores.RutaArchivo, Path.Combine(temporal, "proveedores.json"));
             }
 
             if (opciones.Caracteristicas)

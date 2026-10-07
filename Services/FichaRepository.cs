@@ -41,6 +41,12 @@ public sealed class FichaRepository
 
     public object SyncRoot { get; } = new();
 
+    private bool _desdeNube;
+
+    public IInventarioNube? Nube { get; set; }
+
+    public event EventHandler? InventarioExternoActualizado;
+
     public void Cargar()
     {
         lock (SyncRoot)
@@ -278,11 +284,12 @@ public sealed class FichaRepository
         string? notaIngreso = null,
         bool registrarIngresoAutomatico = true)
     {
+        var lote = fichas.ToList();
         List<MovimientoInventario> movimientos;
         lock (SyncRoot)
         {
             movimientos = [];
-            foreach (var ficha in fichas)
+            foreach (var ficha in lote)
             {
                 PartidasInventario.PrepararParaGuardar(ficha);
                 var movimiento = AplicarEnMemoria(ficha);
@@ -311,6 +318,8 @@ public sealed class FichaRepository
         {
             App.Instance.Registro.Agregar(movimientos);
         }
+
+        PublicarNube(lote.Select(f => f.Clonar()).ToList(), [], false);
     }
 
     public void Eliminar(Guid id) => EliminarVarios([id]);
@@ -337,6 +346,7 @@ public sealed class FichaRepository
         }
 
         App.Instance.Registro.EliminarDeFichas(conjunto);
+        PublicarNube([], conjunto, false);
     }
 
     public void RestaurarEjemplos()
@@ -351,6 +361,7 @@ public sealed class FichaRepository
         }
 
         App.Instance.Registro.ReconstruirDesdeExistencias();
+        PublicarNube(CopiarTodas(), [], true);
     }
 
     public void ReemplazarTodas(IEnumerable<FichaTecnica> fichas)
@@ -363,6 +374,8 @@ public sealed class FichaRepository
             ReconstruirIndices();
             SincronizarColeccion();
         }
+
+        PublicarNube(CopiarTodas(), [], true);
     }
 
     public string ExportarJson() => JsonSerializer.Serialize(_fichas, JsonOptions);
@@ -404,6 +417,7 @@ public sealed class FichaRepository
         }
 
         RegistrarDeltasExistencia(anteriores);
+        PublicarNube(importadas.Select(f => f.Clonar()).ToList(), [], false);
         return importadas.Count;
     }
 
@@ -412,6 +426,7 @@ public sealed class FichaRepository
         var nuevas = 0;
         var actualizadas = 0;
         var omitidas = 0;
+        var publicadas = new List<FichaTecnica>();
         Dictionary<Guid, double> anteriores;
         lock (SyncRoot)
         {
@@ -473,6 +488,7 @@ public sealed class FichaRepository
                 _porId[ficha.Id] = ficha;
                 _indiceCodigo[clave] = indice;
                 actualizadas++;
+                publicadas.Add(ficha);
             }
             else
             {
@@ -493,6 +509,7 @@ public sealed class FichaRepository
                 }
 
                 nuevas++;
+                publicadas.Add(ficha);
             }
         }
 
@@ -507,6 +524,7 @@ public sealed class FichaRepository
         if (nuevas + actualizadas > 0)
         {
             RegistrarDeltasExistencia(anteriores);
+            PublicarNube(publicadas.Select(f => f.Clonar()).ToList(), [], false);
         }
 
         return new ResultadoImportacion(nuevas, actualizadas, omitidas);
@@ -514,6 +532,7 @@ public sealed class FichaRepository
 
     public string VaciarConCopiaSeguridad()
     {
+        string carpeta;
         lock (SyncRoot)
         {
             var copia = App.Instance.Copias.Crear("antes-de-borrar");
@@ -522,8 +541,11 @@ public sealed class FichaRepository
             ReconstruirIndices();
             SincronizarColeccion();
             App.Instance.Registro.Vaciar();
-            return copia.Carpeta;
+            carpeta = copia.Carpeta;
         }
+
+        PublicarNube([], [], true);
+        return carpeta;
     }
 
     private void RegistrarDeltasExistencia(IReadOnlyDictionary<Guid, double> anteriores)
@@ -713,6 +735,128 @@ public sealed class FichaRepository
         }
 
         return 0;
+    }
+
+    public List<FichaTecnica> CopiarTodas()
+    {
+        lock (SyncRoot)
+        {
+            return _fichas.Select(f => f.Clonar()).ToList();
+        }
+    }
+
+    public void AplicarDesdeNube(IReadOnlyList<FichaTecnica> cambios, IReadOnlyCollection<Guid> eliminados)
+    {
+        var huboCambio = false;
+        lock (SyncRoot)
+        {
+            _desdeNube = true;
+            try
+            {
+                var idsBorrados = eliminados.ToHashSet();
+                if (_fichas.RemoveAll(f => idsBorrados.Contains(f.Id)) > 0)
+                {
+                    huboCambio = true;
+                    foreach (var id in idsBorrados)
+                    {
+                        _porId.Remove(id);
+                    }
+                }
+
+                foreach (var cambio in cambios)
+                {
+                    PartidasInventario.Normalizar(cambio);
+                    if (_porId.TryGetValue(cambio.Id, out var anterior))
+                    {
+                        ConservarImagenLocal(cambio, anterior);
+                        if (InventarioDocumento.Huella(anterior) == InventarioDocumento.Huella(cambio))
+                        {
+                            continue;
+                        }
+
+                        var indice = _fichas.IndexOf(anterior);
+                        if (indice >= 0)
+                        {
+                            _fichas[indice] = cambio;
+                            _porId[cambio.Id] = cambio;
+                        }
+                    }
+                    else
+                    {
+                        _fichas.Add(cambio);
+                        _porId[cambio.Id] = cambio;
+                    }
+
+                    huboCambio = true;
+                }
+
+                if (huboCambio)
+                {
+                    Guardar();
+                    ReconstruirIndices();
+                    SincronizarColeccion();
+                }
+            }
+            finally
+            {
+                _desdeNube = false;
+            }
+        }
+
+        if (huboCambio)
+        {
+            InventarioExternoActualizado?.Invoke(this, EventArgs.Empty);
+            if (!ModulosNube.ReflejoSuspendido)
+            {
+                ModulosNube.PublicarDesdeFichas(cambios, eliminados);
+            }
+        }
+    }
+
+    internal void PublicarEnInventario(IReadOnlyList<FichaTecnica> fichas)
+    {
+        if (Nube is null || fichas.Count == 0)
+        {
+            return;
+        }
+
+        Nube.Publicar(fichas, [], false);
+    }
+
+    private void PublicarNube(IReadOnlyList<FichaTecnica> fichas, IReadOnlyCollection<Guid> eliminadas, bool reemplazarColeccion)
+    {
+        if (_desdeNube || Nube is null)
+        {
+            return;
+        }
+
+        if (!reemplazarColeccion && fichas.Count == 0 && eliminadas.Count == 0)
+        {
+            return;
+        }
+
+        Nube.Publicar(fichas, eliminadas, reemplazarColeccion);
+        if (reemplazarColeccion)
+        {
+            ModulosNube.ReflejarInventario();
+        }
+        else
+        {
+            ModulosNube.PublicarDesdeFichas(fichas, eliminadas);
+        }
+    }
+
+    private static void ConservarImagenLocal(FichaTecnica destino, FichaTecnica origen)
+    {
+        if (!string.IsNullOrWhiteSpace(destino.RutaImagen) && File.Exists(destino.RutaImagen))
+        {
+            return;
+        }
+
+        if (!string.IsNullOrWhiteSpace(origen.RutaImagen) && File.Exists(origen.RutaImagen))
+        {
+            destino.RutaImagen = origen.RutaImagen;
+        }
     }
 
     private void SincronizarColeccion()

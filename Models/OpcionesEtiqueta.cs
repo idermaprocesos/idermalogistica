@@ -44,6 +44,14 @@ public sealed class FilaEtiqueta
         Cantidad <= 0 ? "0 · no se imprime" : $"× {Cantidad}";
 }
 
+public enum OrdenTablaQr
+{
+    Alfabetico,
+    Codigo
+}
+
+public sealed record ProductoQrLista(string Codigo, string Nombre, bool EnCatalogo);
+
 public sealed class OpcionesEtiqueta
 {
     public TipoSimboloEtiqueta Tipo { get; set; } = TipoSimboloEtiqueta.Qr;

@@ -95,7 +95,9 @@ public sealed class HistorialPreciosRepository
             }
 
             GuardarInterno();
-            return precio.Clonar();
+            var guardado = precio.Clonar();
+            ModulosNube.PublicarPrecio(guardado);
+            return guardado;
         }
     }
 
@@ -107,6 +109,7 @@ public sealed class HistorialPreciosRepository
             if (quitados > 0)
             {
                 GuardarInterno();
+                ModulosNube.EliminarPrecio(id);
             }
 
             return quitados > 0;
@@ -117,5 +120,68 @@ public sealed class HistorialPreciosRepository
     {
         Directory.CreateDirectory(Path.GetDirectoryName(RutaArchivo)!);
         ArchivoAtomico.EscribirTexto(RutaArchivo, JsonSerializer.Serialize(_precios, JsonOptions));
+    }
+
+    public List<PrecioProducto> CopiarTodos()
+    {
+        lock (_candado)
+        {
+            return _precios.Select(p => p.Clonar()).ToList();
+        }
+    }
+
+    public bool AplicarDesdeNube(IReadOnlyList<PrecioProducto> cambios, IReadOnlyCollection<Guid> eliminados, bool reemplazar)
+    {
+        var huboCambio = false;
+        lock (_candado)
+        {
+            if (reemplazar)
+            {
+                _precios.Clear();
+                _precios.AddRange(cambios.Select(p => p.Clonar()));
+                huboCambio = true;
+            }
+            else
+            {
+                var ids = eliminados.ToHashSet();
+                if (_precios.RemoveAll(p => ids.Contains(p.Id)) > 0)
+                {
+                    huboCambio = true;
+                }
+
+                foreach (var cambio in cambios)
+                {
+                    cambio.Moneda = MonedaPrecio.Normalizar(cambio.Moneda);
+                    var indice = _precios.FindIndex(p => p.Id == cambio.Id);
+                    if (indice >= 0)
+                    {
+                        var actual = _precios[indice];
+                        if (actual.FichaId == cambio.FichaId
+                            && actual.Monto == cambio.Monto
+                            && actual.Moneda == cambio.Moneda
+                            && actual.Nota == cambio.Nota
+                            && actual.Fecha == cambio.Fecha)
+                        {
+                            continue;
+                        }
+
+                        _precios[indice] = cambio.Clonar();
+                    }
+                    else
+                    {
+                        _precios.Add(cambio.Clonar());
+                    }
+
+                    huboCambio = true;
+                }
+            }
+
+            if (huboCambio)
+            {
+                GuardarInterno();
+            }
+        }
+
+        return huboCambio;
     }
 }

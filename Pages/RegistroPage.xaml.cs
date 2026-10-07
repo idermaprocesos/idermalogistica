@@ -15,7 +15,7 @@ using Windows.Storage.Pickers;
 
 namespace IdermaFichas.Pages;
 
-public sealed partial class RegistroPage : Page
+public sealed partial class RegistroPage : Page, IVistaInventario
 {
     private static readonly CultureInfo Cultura = CultureInfo.GetCultureInfo("es-MX");
     private readonly DispatcherTimer _relojBusqueda = new() { Interval = TimeSpan.FromMilliseconds(180) };
@@ -367,6 +367,14 @@ public sealed partial class RegistroPage : Page
 
     private string PeriodoActual() =>
         FiltroPeriodoIngresos.Describir(AnioParaFiltro(), MesesParaFiltro(), DesdeActual(), _atajoMeses);
+
+    public void AplicarCambioInventario()
+    {
+        ConstruirChips();
+        RefrescarLista();
+        AnimacionLista.Revelar(ListaProductos);
+        AnimacionLista.Revelar(ListaHistorial);
+    }
 
     private void RefrescarLista()
     {

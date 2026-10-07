@@ -112,6 +112,49 @@ public static class AlmacenHistorialProveedores
         }
     }
 
+    public static void ReemplazarPorNombre(string nombreAnterior, ContactoProveedor contacto)
+    {
+        var limpio = ContactoProveedor.Normalizar(contacto);
+        if (limpio.EstaVacio)
+        {
+            return;
+        }
+
+        lock (Candado)
+        {
+            QuitarPorNombreInterno(nombreAnterior);
+            QuitarPorNombreInterno(limpio.Nombre);
+            _ocultos.Remove(limpio.Clave);
+            _guardados.Insert(0, limpio);
+            Persistir();
+        }
+    }
+
+    public static void QuitarPorNombre(string nombre)
+    {
+        lock (Candado)
+        {
+            if (QuitarPorNombreInterno(nombre) == 0)
+            {
+                return;
+            }
+
+            Persistir();
+        }
+    }
+
+    private static int QuitarPorNombreInterno(string nombre)
+    {
+        var limpio = (nombre ?? string.Empty).Trim();
+        if (limpio.Length == 0)
+        {
+            return 0;
+        }
+
+        return _guardados.RemoveAll(c =>
+            string.Equals(c.Nombre?.Trim(), limpio, StringComparison.OrdinalIgnoreCase));
+    }
+
     public static bool Eliminar(ContactoProveedor contacto)
     {
         var limpio = ContactoProveedor.Normalizar(contacto);

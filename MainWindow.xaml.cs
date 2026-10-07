@@ -35,6 +35,7 @@ public sealed partial class MainWindow : Window
 
         ExtendsContentIntoTitleBar = true;
         SetTitleBar(AppTitleBar);
+        Iderma.Shell.BotonLauncher.Colocar(AppTitleBar);
         AppWindow.TitleBar.PreferredHeightOption = TitleBarHeightOption.Tall;
         AppWindow.SetIcon("img/logo.ico");
         if (AppWindow.Presenter is OverlappedPresenter presentador)
@@ -45,7 +46,37 @@ public sealed partial class MainWindow : Window
         _navegacionAnterior = NavView.SelectedItem;
         ActualizarMenuAreas();
         NavFrame.Navigate(typeof(HomePage));
+        App.Instance.Repositorio.InventarioExternoActualizado += (_, _) =>
+            DispatcherQueue.TryEnqueue(RefrescarVistaInventario);
+        InventarioNube.EstadoCambiado += () =>
+            DispatcherQueue.TryEnqueue(RefrescarVistaInventario);
+        ModulosNube.EstadoCambiado += () =>
+            DispatcherQueue.TryEnqueue(RefrescarVistaInventario);
+        ModulosNube.DatosCambiados += () =>
+            DispatcherQueue.TryEnqueue(RefrescarVistaInventario);
+        SolicitudesClinicaNube.NuevaPendiente += solicitud =>
+            DispatcherQueue.TryEnqueue(() =>
+            {
+                ActualizarBadgeNotificaciones();
+                AvisoWindowsSolicitudes.Mostrar(solicitud);
+            });
+        SolicitudesClinicaNube.Cambiado += () =>
+            DispatcherQueue.TryEnqueue(ActualizarBadgeNotificaciones);
         DispatcherQueue.TryEnqueue(DispatcherQueuePriority.Low, IniciarCopiasTrasAbrir);
+        DispatcherQueue.TryEnqueue(DispatcherQueuePriority.Low, () =>
+        {
+            AvisoWindowsSolicitudes.Preparar(DispatcherQueue);
+            SolicitudesClinicaNube.Iniciar(DispatcherQueue);
+            ActualizarBadgeNotificaciones();
+        });
+    }
+
+    private void RefrescarVistaInventario()
+    {
+        if (NavFrame.Content is IVistaInventario vista)
+        {
+            vista.AplicarCambioInventario();
+        }
     }
 
     private static void IniciarCopiasTrasAbrir()
@@ -91,6 +122,16 @@ public sealed partial class MainWindow : Window
     }
 
     public async void IrAConfiguracion() => await SeleccionarAsync("configuracion");
+
+    public async void IrANotificaciones() => await SeleccionarAsync("notificaciones");
+
+    private void ActualizarBadgeNotificaciones()
+    {
+        var pendientes = SolicitudesClinicaNube.Pendientes;
+        ItemNotificaciones.InfoBadge = pendientes > 0
+            ? new InfoBadge { Value = pendientes }
+            : null;
+    }
 
     public async void IniciarTourTrabajadorNuevo()
     {
@@ -392,6 +433,12 @@ public sealed partial class MainWindow : Window
 
     private void Navegar(string etiqueta)
     {
+        if (etiqueta == "catalogo")
+        {
+            InventarioNube.Iniciar(App.Instance.Repositorio);
+        }
+
+        ModulosNube.AbrirMenu(etiqueta);
         switch (etiqueta)
         {
             case "inicio":
@@ -411,6 +458,12 @@ public sealed partial class MainWindow : Window
                 break;
             case "orden-compra":
                 NavFrame.Navigate(typeof(OrdenCompraPage));
+                break;
+            case "proveedores":
+                NavFrame.Navigate(typeof(ProveedoresPage));
+                break;
+            case "notificaciones":
+                NavFrame.Navigate(typeof(NotificacionesPage));
                 break;
             case "rh-colaboradores":
                 NavFrame.Navigate(typeof(RhColaboradoresPage));
@@ -501,6 +554,7 @@ public sealed partial class MainWindow : Window
                 etiqueta.StartsWith(AreasOperativas.PrefijoEtiqueta, StringComparison.OrdinalIgnoreCase) ||
                 etiqueta is "clinica" or "oficina" or "limpieza")
             {
+                InventarioNube.Iniciar(App.Instance.Repositorio);
                 NavFrame.Navigate(
                     typeof(AreaPage),
                     new AreaNavegacion(AreasOperativas.IdDesdeEtiqueta(etiqueta), ConsumirFichaPendiente()));

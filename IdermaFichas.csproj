@@ -38,10 +38,10 @@
     <DefineConstants>$(DefineConstants);DISABLE_XAML_GENERATED_MAIN</DefineConstants>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <Version>2.0.0</Version>
-    <AssemblyVersion>2.0.0.0</AssemblyVersion>
-    <FileVersion>2.0.0.0</FileVersion>
-    <InformationalVersion>2.0.0</InformationalVersion>
+    <Version>8.0.0</Version>
+    <AssemblyVersion>8.0.0.0</AssemblyVersion>
+    <FileVersion>8.0.0.0</FileVersion>
+    <InformationalVersion>8.0.0</InformationalVersion>
     <DefaultItemExcludes>$(DefaultItemExcludes);docs\**;installer\**</DefaultItemExcludes>
     <ApplicationIcon>img\logo.ico</ApplicationIcon>
   </PropertyGroup>
@@ -108,6 +108,7 @@
   -->
   <ItemGroup>
     <PackageReference Include="ClosedXML" Version="0.105.0" />
+    <PackageReference Include="Google.Cloud.Firestore" Version="4.4.0" />
     <PackageReference Include="QuestPDF" Version="2025.7.2" />
     <PackageReference Include="System.Drawing.Common" Version="8.0.11" />
     <PackageReference Include="ZXing.Net" Version="0.16.10" />
@@ -131,4 +132,12 @@
     <PublishTrimmed>false</PublishTrimmed>
     <PublishSingleFile>false</PublishSingleFile>
   </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="..\..\shared\BotonLauncher.cs" Link="BotonLauncher.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\Iderma.Core\Iderma.Core.csproj" />
+  </ItemGroup>
 </Project>

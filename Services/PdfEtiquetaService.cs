@@ -1,3 +1,4 @@
+using IdermaFichas.Helpers;
 using IdermaFichas.Models;
 using QuestPDF.Fluent;
 using QuestPDF.Helpers;
@@ -60,6 +61,57 @@ public static class PdfEtiquetaService
                 });
             })
             .WithMetadata(Metadatos($"Etiquetas {SimboloEtiquetaService.Titulo(opciones.Tipo)}"))
+            .GeneratePdf(ruta);
+        progreso?.Report((100, "Documento listo."));
+    }
+
+    public static void ExportarTablaNombreQr(
+        string ruta,
+        IReadOnlyList<ProductoQrLista> productos,
+        OrdenTablaQr orden,
+        IProgress<(int Porcentaje, string Mensaje)>? progreso = null)
+    {
+        if (productos.Count == 0)
+        {
+            throw new InvalidOperationException("No hay productos para la tabla.");
+        }
+
+        progreso?.Report((4, "Preparando la tabla…"));
+        AsegurarLicencia();
+        const float qrMm = 14;
+        progreso?.Report((8, $"Generando {productos.Count} código(s) QR…"));
+        SimboloEtiquetaService.Precargar(
+            productos.Select(p => p.Codigo),
+            TipoSimboloEtiqueta.Qr,
+            qrMm,
+            new Progress<(int Hechos, int Total)>(p =>
+            {
+                var porcentaje = 8 + (int)Math.Round(p.Hechos * 52.0 / Math.Max(1, p.Total));
+                progreso?.Report((porcentaje, $"Generando códigos {p.Hechos} de {p.Total}…"));
+            }));
+
+        var tituloOrden = orden == OrdenTablaQr.Alfabetico ? "orden alfabético" : "orden del código";
+        progreso?.Report((65, "Componiendo la tabla…"));
+        Document
+            .Create(contenedor =>
+            {
+                contenedor.Page(pagina =>
+                {
+                    pagina.Size(PageSizes.A4);
+                    pagina.Margin(10, Unit.Millimetre);
+                    pagina.DefaultTextStyle(x => x.FontFamily("Calibri", "Segoe UI", "Arial").FontSize(9).FontColor(Navy));
+                    pagina.Header().Element(c => EncabezadoTablaQr(c, productos.Count, tituloOrden));
+                    pagina.Content().Element(c => TablaNombreQr(c, productos, qrMm));
+                    pagina.Footer().AlignCenter().Text(t =>
+                    {
+                        t.Span("Iderma Capilar · Tabla de productos y QR · ").FontColor(Gris).FontSize(7);
+                        t.CurrentPageNumber().FontColor(Gris).FontSize(7);
+                        t.Span(" / ").FontColor(Gris).FontSize(7);
+                        t.TotalPages().FontColor(Gris).FontSize(7);
+                    });
+                });
+            })
+            .WithMetadata(Metadatos("Tabla de productos y códigos QR"))
             .GeneratePdf(ruta);
         progreso?.Report((100, "Documento listo."));
     }
@@ -572,6 +624,79 @@ public static class PdfEtiquetaService
                     fila.RelativeItem().Height(3.5f).Background(i % 2 == 0 ? Colors.Black : Colors.White);
                 }
             });
+        });
+    }
+
+    private static void EncabezadoTablaQr(IContainer contenedor, int total, string tituloOrden)
+    {
+        contenedor.PaddingBottom(3).Column(col =>
+        {
+            col.Item().Text("Tabla de productos y códigos QR").Bold().FontSize(14);
+            col.Item().Text($"{total} producto(s) · {tituloOrden} · {DateTime.Now:dd/MM/yyyy HH:mm}")
+                .FontSize(8).FontColor(Gris);
+        });
+    }
+
+    private static void TablaNombreQr(IContainer contenedor, IReadOnlyList<ProductoQrLista> productos, float qrMm)
+    {
+        const int columnas = 3;
+        const float altoNombre = 16f;
+        const float separacionFilas = 5f;
+        const float separacionColumnas = 6f;
+
+        contenedor.Column(columna =>
+        {
+            columna.Spacing(separacionFilas, Unit.Millimetre);
+            for (var i = 0; i < productos.Count; i += columnas)
+            {
+                var inicio = i;
+                var fondo = i / columnas % 2 == 0 ? "#F7F8FA" : "#FFFFFF";
+                columna.Item().ShowEntire().Row(fila =>
+                {
+                    fila.Spacing(separacionColumnas, Unit.Millimetre);
+                    for (var c = 0; c < columnas; c++)
+                    {
+                        var indice = inicio + c;
+                        if (indice < productos.Count)
+                        {
+                            fila.RelativeItem().Element(caja =>
+                                PintarTarjeta(caja, productos[indice], qrMm, altoNombre, fondo));
+                        }
+                        else
+                        {
+                            fila.RelativeItem();
+                        }
+                    }
+                });
+            }
+        });
+    }
+
+    private static void PintarTarjeta(IContainer contenedor, ProductoQrLista producto, float qrMm, float altoNombre, string fondo)
+    {
+        var png = SimboloEtiquetaService.Generar(producto.Codigo, TipoSimboloEtiqueta.Qr, qrMm);
+        var nombre = TextoIdentificacion.Nombre(producto.Nombre);
+        var codigo = string.Equals(nombre, producto.Codigo, StringComparison.OrdinalIgnoreCase)
+            ? " "
+            : producto.Codigo;
+
+        contenedor.Background(fondo).Border(0.4f).BorderColor("#D5D8DE")
+            .PaddingHorizontal(5, Unit.Millimetre)
+            .PaddingTop(3, Unit.Millimetre)
+            .PaddingBottom(5, Unit.Millimetre)
+            .Column(col =>
+        {
+            col.Item().Height(altoNombre, Unit.Millimetre).AlignTop().AlignCenter().Column(texto =>
+            {
+                texto.Spacing(1);
+                texto.Item().AlignCenter().Text(nombre).Bold().FontSize(8).LineHeight(1.05f).FontColor(Colors.Black);
+                texto.Item().AlignCenter().Text(codigo).FontSize(6.5f).FontColor(Gris);
+            });
+            col.Item().PaddingTop(3, Unit.Millimetre).AlignCenter()
+                .Width(qrMm, Unit.Millimetre)
+                .Height(qrMm, Unit.Millimetre)
+                .Image(png)
+                .FitArea();
         });
     }
 
