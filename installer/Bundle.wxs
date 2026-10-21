@@ -4,12 +4,12 @@
   <Bundle
     Name="Iderma Capilar App"
     Manufacturer="Piero Zavala Ayala"
-    Version="8.0.0"
+    Version="15.0.6"
     UpgradeCode="a1c4e8b2-7d93-4f20-8b15-6e9c0d3a5f18"
     IconSourceFile="..\img\logo.ico"
     Compressed="yes"
     DisableModify="yes">
-    <Variable Name="LaunchTarget" Value="[ProgramFiles64Folder]Iderma Capilar App\IdermaCapilarApp.exe" />
+    <Variable Name="LaunchTarget" Value="[ProgramFiles64Folder]Iderma Capilar App\Iderma.Launcher\Iderma.Launcher.exe" />
     <BootstrapperApplication>
       <bal:WixStandardBootstrapperApplication
         LicenseFile="License.es-ES.rtf"

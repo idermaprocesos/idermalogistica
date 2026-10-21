@@ -59,3 +59,10 @@ _ReSharper*/
 # Generated files
 Generated\ Files/
 *_wpftmp.csproj
+
+# Credenciales / cuentas de servicio (nunca versionar)
+cred/
+den/
+*firebase-adminsdk*.json
+*iam.gserviceaccount.com*
+**/iderma-db-*.json
