@@ -7,13 +7,17 @@
 
     <Page.Resources>
         <DataTemplate x:Key="CanalDatoPlantilla">
-            <StackPanel Orientation="Horizontal" Spacing="8">
+            <StackPanel Orientation="Horizontal" Spacing="6">
                 <Image
-                    Width="18"
-                    Height="18"
+                    Width="16"
+                    Height="16"
+                    VerticalAlignment="Center"
                     Source="{Binding Icono}"
                     Stretch="Uniform" />
-                <TextBlock VerticalAlignment="Center" Text="{Binding Titulo}" />
+                <TextBlock
+                    VerticalAlignment="Center"
+                    Text="{Binding Titulo}"
+                    TextTrimming="CharacterEllipsis" />
             </StackPanel>
         </DataTemplate>
     </Page.Resources>
@@ -26,27 +30,56 @@
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
-        <Grid ColumnSpacing="12">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="Auto" />
-            </Grid.ColumnDefinitions>
+        <Grid RowSpacing="8">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
             <StackPanel Spacing="4">
                 <TextBlock x:Name="TituloPagina" Style="{StaticResource TituloPaginaStyle}" Text="Proveedores" />
                 <TextBlock
                     Style="{StaticResource SubtituloPaginaStyle}"
-                    Text="Los mismos proveedores de la ficha técnica: WhatsApp, web, redes y notas. Califique y filtre por el mes o el año en que se agregaron." />
+                    Text="RUC, razón social, datos bancarios, tiempo de entrega y acuerdo de compra mínima, junto con WhatsApp, web, redes y notas. Califique y filtre por el mes o el año en que se agregaron."
+                    TextWrapping="Wrap" />
                 <TextBlock
                     x:Name="TextoConteo"
                     Opacity="0.72"
                     Text="0 proveedores" />
             </StackPanel>
             <StackPanel
-                Grid.Column="1"
-                VerticalAlignment="Center"
+                Grid.Row="1"
                 Orientation="Horizontal"
                 Spacing="8">
                 <Button Click="TraerProductos_Click" Content="Actualizar desde fichas" />
+                <Button Click="BuscarSimilitudes_Click" Content="Buscar similitudes" />
+                <Button
+                    x:Name="BotonRevertirSimilitud"
+                    Click="RevertirUltimoCambio_Click"
+                    Content="Revertir último cambio"
+                    IsEnabled="False"
+                    ToolTipService.ToolTip="Deshace el último reemplazo de similitudes (proveedores y fichas)." />
+                <ToggleButton
+                    x:Name="BotonModoSeleccionar"
+                    Click="ModoSeleccionar_Click"
+                    Content="Seleccionar"
+                    ToolTipService.ToolTip="Active el modo para marcar proveedores y borrarlos en grupo." />
+                <Button
+                    x:Name="BotonSeleccionarTodos"
+                    Click="SeleccionarTodos_Click"
+                    Content="Seleccionar todos"
+                    Visibility="Collapsed"
+                    ToolTipService.ToolTip="Marca todos los proveedores visibles con el filtro actual." />
+                <Button
+                    x:Name="BotonDeseleccionarTodos"
+                    Click="DeseleccionarTodos_Click"
+                    Content="Deseleccionar todos"
+                    Visibility="Collapsed" />
+                <Button
+                    x:Name="BotonEliminarSeleccionados"
+                    Click="EliminarSeleccionados_Click"
+                    Content="Eliminar seleccionados"
+                    IsEnabled="False"
+                    Visibility="Collapsed" />
                 <Button
                     Click="Agregar_Click"
                     Content="Agregar proveedor"
@@ -55,18 +88,18 @@
         </Grid>
 
         <StackPanel Grid.Row="1" Spacing="8">
-            <Grid ColumnSpacing="8">
+            <Grid ColumnSpacing="8" RowSpacing="8">
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="220" />
-                    <ColumnDefinition Width="220" />
+                    <ColumnDefinition Width="*" MinWidth="160" />
+                    <ColumnDefinition Width="*" MinWidth="140" />
+                    <ColumnDefinition Width="*" MinWidth="120" />
                 </Grid.ColumnDefinitions>
                 <TextBox
                     x:Name="CajaBusqueda"
                     MinHeight="32"
                     MaxHeight="32"
                     VerticalAlignment="Center"
-                    PlaceholderText="Buscar por nombre, red, web o nota"
+                    PlaceholderText="Buscar por nombre, RUC, empresa, banco, red, web o nota"
                     TextChanged="CajaBusqueda_TextChanged" />
                 <ComboBox
                     x:Name="ComboCalificacion"
@@ -134,129 +167,201 @@
             <ListView
                 x:Name="Lista"
                 SelectionMode="None">
-                <ListView.ItemsPanel>
-                    <ItemsPanelTemplate>
-                        <StackPanel />
-                    </ItemsPanelTemplate>
-                </ListView.ItemsPanel>
                 <ListView.ItemContainerStyle>
                     <Style TargetType="ListViewItem">
                         <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-                        <Setter Property="Padding" Value="0,0,0,8" />
+                        <Setter Property="Padding" Value="0,0,0,6" />
+                        <Setter Property="MinWidth" Value="0" />
+                        <Setter Property="MinHeight" Value="0" />
                     </Style>
                 </ListView.ItemContainerStyle>
                 <ListView.ItemTemplate>
                     <DataTemplate x:DataType="local:ProveedorFila">
-                        <Border Style="{StaticResource TarjetaKpiStyle}">
-                            <StackPanel Spacing="8">
-                                <Grid ColumnSpacing="12">
+                        <Border Padding="12,10" Style="{StaticResource TarjetaKpiStyle}">
+                            <Grid RowSpacing="8">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
+
+                                <Grid ColumnSpacing="8">
                                     <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
                                         <ColumnDefinition Width="*" />
                                         <ColumnDefinition Width="Auto" />
                                     </Grid.ColumnDefinitions>
-                                    <TextBlock
+                                    <CheckBox
+                                        MinWidth="0"
                                         VerticalAlignment="Center"
-                                        FontSize="16"
+                                        Checked="MarcaProveedor_Changed"
+                                        IsChecked="{x:Bind EstaMarcada, Mode=OneWay}"
+                                        Tag="{x:Bind IdTexto}"
+                                        Unchecked="MarcaProveedor_Changed"
+                                        Visibility="{x:Bind MostrarMarca}" />
+                                    <TextBlock
+                                        Grid.Column="1"
+                                        VerticalAlignment="Center"
+                                        FontSize="15"
                                         FontWeight="SemiBold"
                                         Text="{x:Bind Nombre}"
-                                        TextWrapping="Wrap" />
+                                        TextTrimming="CharacterEllipsis"
+                                        TextWrapping="NoWrap" />
                                     <TextBlock
-                                        Grid.Column="1"
+                                        Grid.Column="2"
                                         VerticalAlignment="Center"
-                                        Opacity="0.65"
+                                        FontSize="12"
+                                        Opacity="0.55"
                                         Text="{x:Bind FechaTexto}" />
                                 </Grid>
+
                                 <TextBlock
-                                    Opacity="0.65"
-                                    Text="{x:Bind UsoTexto}" />
-                                <Grid ColumnSpacing="8">
+                                    Grid.Row="1"
+                                    FontSize="12"
+                                    Opacity="0.72"
+                                    Text="{x:Bind DetalleTexto}"
+                                    TextTrimming="CharacterEllipsis"
+                                    TextWrapping="NoWrap"
+                                    ToolTipService.ToolTip="{x:Bind DetalleTexto}" />
+
+                                <Grid Grid.Row="2" ColumnSpacing="10" VerticalAlignment="Center">
                                     <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="168" />
-                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="*" MinWidth="200" />
+                                        <ColumnDefinition Width="*" MinWidth="200" />
+                                    </Grid.ColumnDefinitions>
+                                    <Grid ColumnSpacing="6" VerticalAlignment="Center">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="140" />
+                                            <ColumnDefinition Width="*" MinWidth="80" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <ComboBox
+                                            MinHeight="32"
+                                            Padding="10,5,8,5"
+                                            HorizontalAlignment="Stretch"
+                                            VerticalAlignment="Center"
+                                            VerticalContentAlignment="Center"
+                                            ItemTemplate="{StaticResource CanalDatoPlantilla}"
+                                            ItemsSource="{x:Bind Canales}"
+                                            Loaded="Canal1_Loaded"
+                                            SelectionChanged="Canal1_SelectionChanged"
+                                            Tag="{x:Bind IdTexto}" />
+                                        <TextBox
+                                            Grid.Column="1"
+                                            MinHeight="32"
+                                            Padding="10,5"
+                                            VerticalAlignment="Center"
+                                            VerticalContentAlignment="Center"
+                                            LostFocus="Dato1_LostFocus"
+                                            PlaceholderText="{x:Bind Placeholder1}"
+                                            Tag="{x:Bind IdTexto}"
+                                            Text="{x:Bind Dato1, Mode=OneTime}"
+                                            TextWrapping="NoWrap" />
+                                        <Button
+                                            Grid.Column="2"
+                                            MinHeight="32"
+                                            MinWidth="64"
+                                            Padding="12,5"
+                                            VerticalAlignment="Center"
+                                            VerticalContentAlignment="Center"
+                                            Click="AbrirCanal_Click"
+                                            Content="Abrir" />
+                                    </Grid>
+                                    <Grid Grid.Column="1" ColumnSpacing="6" VerticalAlignment="Center">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="140" />
+                                            <ColumnDefinition Width="*" MinWidth="80" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <ComboBox
+                                            MinHeight="32"
+                                            Padding="10,5,8,5"
+                                            HorizontalAlignment="Stretch"
+                                            VerticalAlignment="Center"
+                                            VerticalContentAlignment="Center"
+                                            ItemTemplate="{StaticResource CanalDatoPlantilla}"
+                                            ItemsSource="{x:Bind Canales}"
+                                            Loaded="Canal2_Loaded"
+                                            SelectionChanged="Canal2_SelectionChanged"
+                                            Tag="{x:Bind IdTexto}" />
+                                        <TextBox
+                                            Grid.Column="1"
+                                            MinHeight="32"
+                                            Padding="10,5"
+                                            VerticalAlignment="Center"
+                                            VerticalContentAlignment="Center"
+                                            LostFocus="Dato2_LostFocus"
+                                            PlaceholderText="{x:Bind Placeholder2}"
+                                            Tag="{x:Bind IdTexto}"
+                                            Text="{x:Bind Dato2, Mode=OneTime}"
+                                            TextWrapping="NoWrap" />
+                                        <Button
+                                            Grid.Column="2"
+                                            MinHeight="32"
+                                            MinWidth="64"
+                                            Padding="12,5"
+                                            VerticalAlignment="Center"
+                                            VerticalContentAlignment="Center"
+                                            Click="AbrirCanal_Click"
+                                            Content="Abrir" />
+                                    </Grid>
+                                </Grid>
+
+                                <Grid Grid.Row="3" ColumnSpacing="8" VerticalAlignment="Center">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="160" />
+                                        <ColumnDefinition Width="*" MinWidth="120" />
                                         <ColumnDefinition Width="Auto" />
                                     </Grid.ColumnDefinitions>
                                     <ComboBox
                                         MinHeight="32"
+                                        Padding="10,5,8,5"
                                         HorizontalAlignment="Stretch"
                                         VerticalAlignment="Center"
-                                        ItemTemplate="{StaticResource CanalDatoPlantilla}"
-                                        ItemsSource="{x:Bind Canales}"
-                                        Loaded="Canal1_Loaded"
-                                        SelectionChanged="Canal1_SelectionChanged"
+                                        VerticalContentAlignment="Center"
+                                        ItemsSource="{x:Bind Calificaciones}"
+                                        Loaded="ComboCalificacion_Loaded"
+                                        PlaceholderText="Calificación"
+                                        SelectionChanged="Calificacion_SelectionChanged"
                                         Tag="{x:Bind IdTexto}" />
                                     <TextBox
                                         Grid.Column="1"
                                         MinHeight="32"
+                                        Padding="10,5"
                                         VerticalAlignment="Center"
-                                        LostFocus="Dato1_LostFocus"
-                                        PlaceholderText="{x:Bind Placeholder1}"
+                                        VerticalContentAlignment="Center"
+                                        LostFocus="Notas_LostFocus"
+                                        PlaceholderText="Notas"
                                         Tag="{x:Bind IdTexto}"
-                                        Text="{x:Bind Dato1, Mode=OneTime}" />
-                                    <Button
+                                        Text="{x:Bind Notas, Mode=OneTime}"
+                                        TextWrapping="NoWrap" />
+                                    <StackPanel
                                         Grid.Column="2"
-                                        MinHeight="32"
                                         VerticalAlignment="Center"
-                                        Click="AbrirCanal_Click"
-                                        Content="Abrir" />
+                                        Orientation="Horizontal"
+                                        Spacing="6">
+                                        <Button
+                                            MinHeight="32"
+                                            MinWidth="76"
+                                            Padding="14,5"
+                                            VerticalAlignment="Center"
+                                            VerticalContentAlignment="Center"
+                                            Click="Editar_Click"
+                                            Content="Editar"
+                                            Tag="{x:Bind IdTexto}" />
+                                        <Button
+                                            MinHeight="32"
+                                            MinWidth="84"
+                                            Padding="14,5"
+                                            VerticalAlignment="Center"
+                                            VerticalContentAlignment="Center"
+                                            Click="Eliminar_Click"
+                                            Content="Eliminar"
+                                            Tag="{x:Bind IdTexto}" />
+                                    </StackPanel>
                                 </Grid>
-                                <Grid ColumnSpacing="8">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="168" />
-                                        <ColumnDefinition Width="*" />
-                                        <ColumnDefinition Width="Auto" />
-                                    </Grid.ColumnDefinitions>
-                                    <ComboBox
-                                        MinHeight="32"
-                                        HorizontalAlignment="Stretch"
-                                        VerticalAlignment="Center"
-                                        ItemTemplate="{StaticResource CanalDatoPlantilla}"
-                                        ItemsSource="{x:Bind Canales}"
-                                        Loaded="Canal2_Loaded"
-                                        SelectionChanged="Canal2_SelectionChanged"
-                                        Tag="{x:Bind IdTexto}" />
-                                    <TextBox
-                                        Grid.Column="1"
-                                        MinHeight="32"
-                                        VerticalAlignment="Center"
-                                        LostFocus="Dato2_LostFocus"
-                                        PlaceholderText="{x:Bind Placeholder2}"
-                                        Tag="{x:Bind IdTexto}"
-                                        Text="{x:Bind Dato2, Mode=OneTime}" />
-                                    <Button
-                                        Grid.Column="2"
-                                        MinHeight="32"
-                                        VerticalAlignment="Center"
-                                        Click="AbrirCanal_Click"
-                                        Content="Abrir" />
-                                </Grid>
-                                <ComboBox
-                                    Width="240"
-                                    HorizontalAlignment="Left"
-                                    Header="Calificación"
-                                    ItemsSource="{x:Bind Calificaciones}"
-                                    Loaded="ComboCalificacion_Loaded"
-                                    SelectionChanged="Calificacion_SelectionChanged"
-                                    Tag="{x:Bind IdTexto}" />
-                                <TextBox
-                                    AcceptsReturn="True"
-                                    Header="Notas"
-                                    LostFocus="Notas_LostFocus"
-                                    MaxHeight="120"
-                                    MinHeight="64"
-                                    Tag="{x:Bind IdTexto}"
-                                    Text="{x:Bind Notas, Mode=OneTime}"
-                                    TextWrapping="Wrap" />
-                                <StackPanel HorizontalAlignment="Right" Orientation="Horizontal" Spacing="8">
-                                    <Button
-                                        Click="Editar_Click"
-                                        Content="Editar"
-                                        Tag="{x:Bind IdTexto}" />
-                                    <Button
-                                        Click="Eliminar_Click"
-                                        Content="Eliminar"
-                                        Tag="{x:Bind IdTexto}" />
-                                </StackPanel>
-                            </StackPanel>
+                            </Grid>
                         </Border>
                     </DataTemplate>
                 </ListView.ItemTemplate>

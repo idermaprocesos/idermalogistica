@@ -106,8 +106,14 @@ public static class ExcelUi
         return temporal;
     }
 
-    public static async Task<bool> GuardarPlantillaAsync() =>
-        await GuardarExcelAsync("plantilla-fichas-iderma", ExcelFichaService.CrearPlantilla) is not null;
+    public static async Task<bool> GuardarPlantillaAsync()
+    {
+        await InventarioNube.CargarCompletasAsync(App.Instance.Repositorio.CopiarTodas());
+        var fichas = App.Instance.Repositorio.CopiarTodas();
+        return await GuardarExcelAsync(
+            "plantilla-fichas-iderma",
+            ruta => ExcelFichaService.CrearPlantilla(ruta, fichas)) is not null;
+    }
 
     public static Task<ResultadoExportacion?> ExportarFichaAsync(FichaTecnica ficha) =>
         GuardarDocumentoAsync(
@@ -158,6 +164,25 @@ public static class ExcelUi
                     RegistroIngresosExportService.ExportarExcel(ruta, lineas, periodo);
                 }
             });
+
+    public static Task<ResultadoExportacion?> ExportarOrdenServicioAsync(
+        OrdenServicioDocumento documento,
+        bool pdf) =>
+        GuardarDocumentoAsync(
+            NombreServicio(documento),
+            (ruta, _) =>
+            {
+                if (pdf)
+                {
+                    OrdenServicioExportService.ExportarPdf(ruta, documento);
+                }
+                else
+                {
+                    OrdenServicioExportService.ExportarExcel(ruta, documento);
+                }
+            },
+            soloPdf: pdf,
+            soloExcel: !pdf);
 
     public static Task<ResultadoExportacion?> ExportarOrdenCompraAsync(
         OrdenCompraDocumento documento,
@@ -453,10 +478,21 @@ public static class ExcelUi
     private static bool EsPdf(string extension) =>
         extension.Equals(".pdf", StringComparison.OrdinalIgnoreCase);
 
+    private static string NombreServicio(OrdenServicioDocumento documento)
+    {
+        var titulo = documento.TituloImpresion.Replace('/', '-');
+        var limpio = new string(titulo.Where(c => !Path.GetInvalidFileNameChars().Contains(c)).ToArray());
+        return string.IsNullOrWhiteSpace(limpio) ? $"ORDEN DE SERVICIO {DateTime.Now:dd-MM-yyyy}" : limpio;
+    }
+
     private static string NombreOrden(OrdenCompraDocumento documento)
     {
-        var mes = new string((documento.MesAnio ?? string.Empty).Where(char.IsLetterOrDigit).ToArray());
-        return string.IsNullOrWhiteSpace(mes) ? $"orden-compra-{DateTime.Now:yyyyMMdd}" : $"orden-compra-{mes}";
+        var baseNombre = string.IsNullOrWhiteSpace(documento.Correlativo)
+            ? documento.TituloImpresion
+            : $"{documento.Correlativo} {documento.TituloImpresion}";
+        var titulo = baseNombre.Replace('/', '-');
+        var limpio = new string(titulo.Where(c => !Path.GetInvalidFileNameChars().Contains(c)).ToArray());
+        return string.IsNullOrWhiteSpace(limpio) ? $"ORDEN DE COMPRA {DateTime.Now:yyyy}" : limpio;
     }
 
     private static string Sanitizar(string valor)

@@ -1,7 +1,7 @@
 using System.Collections.ObjectModel;
 using System.Globalization;
-using Google.Apis.Auth.OAuth2;
 using Google.Cloud.Firestore;
+using Iderma.Core.Services;
 using IdermaFichas.Models;
 using Microsoft.UI.Dispatching;
 
@@ -10,9 +10,9 @@ namespace IdermaFichas.Services;
 public static class SolicitudesClinicaNube
 {
     public const string Coleccion = "solicitudes-clinica";
-    private const string Proyecto = "iderma-db-2026";
 
     private static readonly object Candado = new();
+    private static readonly HashSet<string> Aceptando = new(StringComparer.OrdinalIgnoreCase);
     private static FirestoreDb? _base;
     private static FirestoreChangeListener? _escucha;
     private static int _iniciado;
@@ -66,7 +66,11 @@ public static class SolicitudesClinicaNube
 
     private static void PersistirLocal() => SolicitudesLocales.Guardar(Items);
 
-    public static async Task<string> AceptarAsync(SolicitudClinica solicitud)
+    public static async Task<string> AceptarAsync(
+        SolicitudClinica solicitud,
+        IReadOnlyList<int> cantidades,
+        bool cantidadAcordada,
+        string motivo)
     {
         ArgumentNullException.ThrowIfNull(solicitud);
         if (!solicitud.EstaPendiente)
@@ -74,24 +78,83 @@ public static class SolicitudesClinicaNube
             throw new InvalidOperationException("Esa solicitud ya fue respondida.");
         }
 
-        // Primero descuenta y deja la salida en Registro; si falla, no se acepta.
-        var resumenSalidas = SalidasSolicitudClinica.Registrar(solicitud);
-        await ResponderAsync(solicitud, EstadoSolicitudClinica.Aceptada, string.Empty);
-        return resumenSalidas;
+        lock (Candado)
+        {
+            if (!Aceptando.Add(solicitud.Id))
+            {
+                throw new InvalidOperationException("Esa solicitud ya se está aceptando.");
+            }
+        }
+
+        var previas = solicitud.Items.Select(i => i.CantidadRespuesta).ToList();
+        AplicarCantidades(solicitud, cantidades);
+        try
+        {
+            // Primero descuenta y deja la salida en Registro; si falla Firebase, se revierte.
+            var yaHabiaSalidas = SalidasSolicitudClinica.YaRegistrada(solicitud);
+            var resumenSalidas = SalidasSolicitudClinica.Registrar(solicitud);
+            var recienDescontado = !yaHabiaSalidas;
+            try
+            {
+                await ResponderAsync(
+                    solicitud,
+                    EstadoSolicitudClinica.Aceptada,
+                    motivo.Trim(),
+                    cantidadAcordada,
+                    cantidades);
+            }
+            catch
+            {
+                if (recienDescontado)
+                {
+                    SalidasSolicitudClinica.Revertir(solicitud);
+                }
+
+                throw;
+            }
+
+            return resumenSalidas;
+        }
+        catch
+        {
+            for (var i = 0; i < solicitud.Items.Count && i < previas.Count; i++)
+            {
+                solicitud.Items[i].CantidadRespuesta = previas[i];
+            }
+
+            throw;
+        }
+        finally
+        {
+            lock (Candado)
+            {
+                Aceptando.Remove(solicitud.Id);
+            }
+        }
     }
 
-    public static async Task DenegarAsync(SolicitudClinica solicitud, string motivo)
+    public static async Task DenegarAsync(SolicitudClinica solicitud, string motivo, IReadOnlyList<int> cantidades)
     {
         ArgumentNullException.ThrowIfNull(solicitud);
         if (string.IsNullOrWhiteSpace(motivo))
         {
-            throw new InvalidOperationException("Escribe el motivo de la denegación.");
+            throw new InvalidOperationException("Elige el motivo de la denegación.");
         }
 
-        await ResponderAsync(solicitud, EstadoSolicitudClinica.Denegada, motivo.Trim());
+        await ResponderAsync(
+            solicitud,
+            EstadoSolicitudClinica.Denegada,
+            motivo.Trim(),
+            cantidadAcordada: false,
+            cantidades);
     }
 
-    private static async Task ResponderAsync(SolicitudClinica solicitud, EstadoSolicitudClinica estado, string motivo)
+    private static async Task ResponderAsync(
+        SolicitudClinica solicitud,
+        EstadoSolicitudClinica estado,
+        string motivo,
+        bool cantidadAcordada,
+        IReadOnlyList<int> cantidades)
     {
         await AsegurarBaseAsync();
         if (_base is null)
@@ -100,11 +163,26 @@ public static class SolicitudesClinicaNube
         }
 
         var ahora = DateTimeOffset.Now;
+        var items = new List<object>();
+        for (var i = 0; i < solicitud.Items.Count; i++)
+        {
+            var linea = solicitud.Items[i];
+            var cantidad = i < cantidades.Count ? Math.Max(0, cantidades[i]) : linea.Cantidad;
+            items.Add(new Dictionary<string, object>
+            {
+                ["Código"] = linea.Codigo,
+                ["Nombre"] = linea.Nombre,
+                ["Cantidad"] = cantidad
+            });
+        }
+
         var datos = new Dictionary<string, object>
         {
             ["Estado"] = estado.ToString(),
+            ["Cantidad acordada"] = cantidadAcordada,
             ["Motivo denegación"] = motivo,
             ["Fecha respuesta"] = ahora.ToString("o", CultureInfo.InvariantCulture),
+            ["Items respuesta"] = items,
             ["Actualizado"] = FieldValue.ServerTimestamp
         };
 
@@ -112,6 +190,8 @@ public static class SolicitudesClinicaNube
 
         await EnUiAsync(() =>
         {
+            AplicarCantidades(solicitud, cantidades);
+            solicitud.CantidadAcordada = cantidadAcordada;
             solicitud.Estado = estado;
             solicitud.MotivoDenegacion = motivo;
             solicitud.FechaRespuesta = ahora;
@@ -119,6 +199,16 @@ public static class SolicitudesClinicaNube
             PersistirLocal();
             Cambiado?.Invoke();
         });
+    }
+
+    private static void AplicarCantidades(SolicitudClinica solicitud, IReadOnlyList<int> cantidades)
+    {
+        for (var i = 0; i < solicitud.Items.Count; i++)
+        {
+            var pedida = Math.Max(0, solicitud.Items[i].Cantidad);
+            var cantidad = i < cantidades.Count ? cantidades[i] : pedida;
+            solicitud.Items[i].CantidadRespuesta = Math.Clamp(cantidad, 0, pedida);
+        }
     }
 
     private static async Task ConectarAsync()
@@ -137,8 +227,17 @@ public static class SolicitudesClinicaNube
                 return;
             }
 
-            // Solo Listen: evita un GetSnapshot extra. La UI ya salió de la caché local.
-            _escucha = _base.Collection(Coleccion).Listen(AlRecibir);
+            var guardado = CursorNube.Cargar(Coleccion + "-fichas");
+            _escuchaInicial = !guardado.HasValue;
+            var desde = guardado ?? CursorNube.Epoca;
+            _escucha = _base.Collection(Coleccion)
+                .WhereGreaterThan("Actualizado", desde)
+                .OrderBy("Actualizado")
+                .Listen(snapshot =>
+                {
+                    AlRecibir(snapshot);
+                    CursorNube.GuardarSiAvanza(Coleccion + "-fichas", snapshot.ReadTime);
+                });
         }
         catch (Exception ex)
         {
@@ -174,6 +273,7 @@ public static class SolicitudesClinicaNube
 
             if (recibidas.Count == 0 && eliminadas.Count == 0 && !snapshot.Changes.Any())
             {
+                _escuchaInicial = false;
                 return;
             }
 
@@ -208,6 +308,7 @@ public static class SolicitudesClinicaNube
                         actual.Urgente = llegada.Urgente;
                         actual.Items = llegada.Items;
                         actual.Estado = llegada.Estado;
+                        actual.CantidadAcordada = llegada.CantidadAcordada;
                         actual.MotivoDenegacion = llegada.MotivoDenegacion;
                         actual.FechaRespuesta = llegada.FechaRespuesta;
                         actual.Origen = llegada.Origen;
@@ -276,6 +377,8 @@ public static class SolicitudesClinicaNube
             }
         }
 
+        AplicarRespuestaLeida(items, datos);
+
         return new SolicitudClinica
         {
             Id = doc.Id,
@@ -284,11 +387,66 @@ public static class SolicitudesClinicaNube
             Fecha = Fecha(datos, "Fecha") ?? DateTimeOffset.Now,
             Urgente = Bool(datos, "Urgente"),
             Estado = ParseEstado(Texto(datos, "Estado")),
+            CantidadAcordada = Bool(datos, "Cantidad acordada"),
             MotivoDenegacion = Texto(datos, "Motivo denegación", "MotivoDenegacion"),
             FechaRespuesta = Fecha(datos, "Fecha respuesta", "FechaRespuesta"),
             Origen = Texto(datos, "Origen") is { Length: > 0 } origen ? origen : "clinica",
             Items = items
         };
+    }
+
+    private static void AplicarRespuestaLeida(List<LineaSolicitudClinica> items, IDictionary<string, object> datos)
+    {
+        if (!datos.TryGetValue("Items respuesta", out var raw) || raw is not IEnumerable<object> lista)
+        {
+            return;
+        }
+
+        var respuestas = new List<(string Codigo, string Nombre, int Cantidad)>();
+        foreach (var item in lista)
+        {
+            if (item is not IDictionary<string, object> mapa)
+            {
+                continue;
+            }
+
+            respuestas.Add((
+                Texto(mapa, "Código", "Codigo"),
+                Texto(mapa, "Nombre", "Producto"),
+                Entero(mapa.TryGetValue("Cantidad", out var c) ? c : 0)));
+        }
+
+        var usadas = new bool[respuestas.Count];
+        foreach (var linea in items)
+        {
+            var indice = -1;
+            for (var i = 0; i < respuestas.Count; i++)
+            {
+                if (usadas[i])
+                {
+                    continue;
+                }
+
+                var (codigo, nombre, _) = respuestas[i];
+                var mismoCodigo = !string.IsNullOrWhiteSpace(linea.Codigo) &&
+                                  linea.Codigo.Equals(codigo, StringComparison.OrdinalIgnoreCase);
+                var mismoNombre = !string.IsNullOrWhiteSpace(linea.Nombre) &&
+                                  linea.Nombre.Equals(nombre, StringComparison.OrdinalIgnoreCase);
+                if (mismoCodigo || (string.IsNullOrWhiteSpace(linea.Codigo) && mismoNombre))
+                {
+                    indice = i;
+                    break;
+                }
+            }
+
+            if (indice < 0)
+            {
+                continue;
+            }
+
+            usadas[indice] = true;
+            linea.CantidadRespuesta = respuestas[indice].Cantidad;
+        }
     }
 
     private static EstadoSolicitudClinica ParseEstado(string texto) =>
@@ -311,22 +469,7 @@ public static class SolicitudesClinicaNube
             }
         }
 
-        var credenciales = BuscarCredenciales();
-        if (credenciales is null)
-        {
-            return;
-        }
-
-        var db = await new FirestoreDbBuilder
-        {
-            ProjectId = Proyecto,
-            Credential = CredentialFactory.FromFile<ServiceAccountCredential>(credenciales).ToGoogleCredential()
-        }.BuildAsync();
-
-        lock (Candado)
-        {
-            _base ??= db;
-        }
+        _base = await ConexionFirebase.AbrirAsync();
     }
 
     private static void CambiarEstado(string texto)
@@ -434,28 +577,4 @@ public static class SolicitudesClinicaNube
         return null;
     }
 
-    private static string? BuscarCredenciales()
-    {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null)
-        {
-            var cred = Path.Combine(dir.FullName, "cred");
-            if (Directory.Exists(cred))
-            {
-                var archivo = Directory.GetFiles(cred, "*firebase-adminsdk*.json").FirstOrDefault();
-                if (archivo is not null)
-                {
-                    return archivo;
-                }
-            }
-
-            dir = dir.Parent;
-        }
-
-        var appData = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "IdermaCapilar",
-            "firebase-adminsdk.json");
-        return File.Exists(appData) ? appData : null;
-    }
 }

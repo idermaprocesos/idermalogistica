@@ -35,7 +35,10 @@ public sealed class BackupService
             CopiarSiExiste(App.Instance.Registro.RutaArchivo, Path.Combine(destino, "registro-ingresos.json"));
             CopiarSiExiste(App.Instance.HistorialPrecios.RutaArchivo, Path.Combine(destino, "historial-precios.json"));
             CopiarSiExiste(App.Instance.OrdenesCompra.RutaArchivo, Path.Combine(destino, "ordenes-compra.json"));
+            CopiarSiExiste(App.Instance.OrdenesServicio.RutaArchivo, Path.Combine(destino, "ordenes-servicio-logistica.json"));
             CopiarSiExiste(App.Instance.Proveedores.RutaArchivo, Path.Combine(destino, "proveedores.json"));
+            CopiarSiExiste(App.Instance.Mermas.RutaArchivo, Path.Combine(destino, "merma.json"));
+            CopiarSiExiste(App.Instance.ControlMantenimiento.RutaArchivo, Path.Combine(destino, "control-mantenimiento.json"));
 
             var incluyeImagenes = forzarImagenes || preferencias.CopiasIncluyenImagenes;
             if (incluyeImagenes && Directory.Exists(ImagenFichaService.Carpeta))
@@ -216,6 +219,24 @@ public sealed class BackupService
                 if (File.Exists(ordenesCopia))
                 {
                     RestaurarArchivo(ordenesCopia, App.Instance.OrdenesCompra.RutaArchivo);
+                }
+
+                var ordenesServicioCopia = Path.Combine(ruta, "ordenes-servicio-logistica.json");
+                if (File.Exists(ordenesServicioCopia))
+                {
+                    RestaurarArchivo(ordenesServicioCopia, App.Instance.OrdenesServicio.RutaArchivo);
+                }
+
+                var mermaCopia = Path.Combine(ruta, "merma.json");
+                if (File.Exists(mermaCopia))
+                {
+                    RestaurarArchivo(mermaCopia, App.Instance.Mermas.RutaArchivo);
+                }
+
+                var controlCopia = Path.Combine(ruta, "control-mantenimiento.json");
+                if (File.Exists(controlCopia))
+                {
+                    RestaurarArchivo(controlCopia, App.Instance.ControlMantenimiento.RutaArchivo);
                 }
 
                 var proveedoresCopia = Path.Combine(ruta, "proveedores.json");

@@ -15,11 +15,9 @@ public class FichaTecnica
     public string Nombre { get; set; } = string.Empty;
     public string Categoria { get; set; } = string.Empty;
     public string Descripcion { get; set; } = string.Empty;
-    public string RutaImagen { get; set; } = string.Empty;
 
     public string EstadoFisico { get; set; } = string.Empty;
     public string Color { get; set; } = string.Empty;
-    public string Presentacion { get; set; } = string.Empty;
     public string Dimensiones { get; set; } = string.Empty;
     public string PesoVolumen { get; set; } = string.Empty;
     public string MaterialFabricacion { get; set; } = string.Empty;
@@ -27,13 +25,18 @@ public class FichaTecnica
 
     public string Marca { get; set; } = string.Empty;
     public string Modelo { get; set; } = string.Empty;
-    public string Especificaciones { get; set; } = string.Empty;
     public string NormasCertificaciones { get; set; } = string.Empty;
-    public string CondicionesAlmacenamiento { get; set; } = string.Empty;
-    public string InstruccionesUso { get; set; } = string.Empty;
     public string VidaUtil { get; set; } = string.Empty;
     public double Existencia { get; set; }
     public double StockMinimo { get; set; }
+
+    /// <summary>Solo para la carga de la plantilla Excel. No se guarda en la ficha.</summary>
+    [JsonIgnore]
+    public double? PrecioCarga { get; set; }
+
+    /// <summary>Solo para la carga de la plantilla Excel. No se guarda en la ficha.</summary>
+    [JsonIgnore]
+    public string MonedaCarga { get; set; } = string.Empty;
 
     public string Fabricante { get; set; } = string.Empty;
     public string PaisOrigen { get; set; } = string.Empty;
@@ -59,15 +62,9 @@ public class FichaTecnica
     public string NumeroFactura { get; set; } = string.Empty;
     public string RegistroSanitario { get; set; } = string.Empty;
 
-    public string UsoClinico { get; set; } = string.Empty;
-    public string Procedimiento { get; set; } = string.Empty;
     public bool Esteril { get; set; }
     public bool RequiereRefrigeracion { get; set; }
-    public string TemperaturaAlmacenamiento { get; set; } = string.Empty;
     public DateTimeOffset? FechaCaducidad { get; set; }
-    public string Composicion { get; set; } = string.Empty;
-    public string RiesgoBiologico { get; set; } = string.Empty;
-    public string Contraindicaciones { get; set; } = string.Empty;
     public bool Reutilizable { get; set; }
 
     public string Ubicacion { get; set; } = string.Empty;
@@ -98,6 +95,12 @@ public class FichaTecnica
 
     public DateTimeOffset FechaCreacion { get; set; } = DateTimeOffset.Now;
     public DateTimeOffset FechaActualizacion { get; set; } = DateTimeOffset.Now;
+
+    /// <summary>null: copia local anterior, con la ficha entera. false: solo llegaron las columnas de las listas.</summary>
+    public bool? LecturaCompleta { get; set; }
+
+    [JsonIgnore]
+    public bool TieneFichaCompleta => LecturaCompleta != false;
 
     [JsonIgnore]
     public string AreaTitulo => AreasOperativas.Titulo(Area);
@@ -160,7 +163,7 @@ public class FichaTecnica
     public FichaTecnica Clonar()
     {
         var copia = (FichaTecnica)MemberwiseClone();
-        copia.Caracteristicas = Caracteristicas.Select(c => c.Clonar()).ToList();
+        copia.Caracteristicas = (Caracteristicas ?? []).Select(c => c.Clonar()).ToList();
         copia.Partidas = (Partidas ?? []).Select(p => p.Clonar()).ToList();
         return copia;
     }

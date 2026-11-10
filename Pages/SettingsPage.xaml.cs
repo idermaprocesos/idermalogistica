@@ -1,3 +1,4 @@
+using Iderma.Core.Services;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Navigation;
@@ -29,222 +30,108 @@ public sealed partial class SettingsPage : Page
         CargarPreferencias();
         CargarListaCopias();
         ActualizarResumenMedicacion();
-        TextoVersionActual.Text =
-            $"Versión instalada: {ActualizacionService.TextoVersionInstalada}. Origen: github.com/{ActualizacionService.Repositorio}";
-        MostrarInstaladorPendiente();
     }
 
-    private async void ActualizarPrograma_Click(object sender, RoutedEventArgs e) =>
-        await DescargarDesdeGithubAsync(buscarActualizacion: true);
-
-    private async void RestaurarVersionAnterior_Click(object sender, RoutedEventArgs e) =>
-        await DescargarDesdeGithubAsync(buscarActualizacion: false);
-
-    private async void InstalarActualizacion_Click(object sender, RoutedEventArgs e)
+    private async void ComprobarBase_Click(object sender, RoutedEventArgs e)
     {
-        var paquete = ActualizacionService.LeerInstaladorPendiente();
-        if (paquete is null)
-        {
-            Mostrar("No hay un instalador descargado. Busque primero la actualización.", InfoBarSeverity.Warning);
-            MostrarInstaladorPendiente();
-            return;
-        }
+        BotonComprobarBase.IsEnabled = false;
+        AnilloBase.IsActive = true;
+        AnilloBase.Visibility = Visibility.Visible;
+        BarraBase.IsOpen = false;
+        TextoErrorBase.Visibility = Visibility.Collapsed;
+        TextoSolucionBase.Visibility = Visibility.Collapsed;
 
-        var dialogo = new ContentDialog
-        {
-            Title = paquete.Restaurar ? "Restaurar versión anterior" : "Instalar actualización",
-            Content =
-                $"Se instalará {paquete.Etiqueta}.\n\n" +
-                "Se creará una copia de seguridad y se cerrará el programa para poder actualizar los archivos. " +
-                "Al abrir de nuevo se cargarán esos datos.",
-            PrimaryButtonText = "Instalar y cerrar",
-            CloseButtonText = "Cancelar",
-            DefaultButton = ContentDialogButton.Primary,
-            XamlRoot = XamlRoot
-        };
-        if (await dialogo.ShowAsync() != ContentDialogResult.Primary)
-        {
-            return;
-        }
-
-        BotonActualizar.IsEnabled = false;
-        BotonRestaurar.IsEnabled = false;
-        BotonInstalar.IsEnabled = false;
-        BarraActualizacion.Visibility = Visibility.Visible;
-        TextoProgresoActualizacion.Visibility = Visibility.Visible;
         try
         {
-            TextoProgresoActualizacion.Text = "Creando copia de seguridad…";
-            BarraActualizacion.Value = 20;
-            var origen = paquete.Restaurar ? "antes-de-restaurar" : "antes-de-actualizar";
-            var copia = await Task.Run(() => ActualizacionService.PrepararCopiaYMarcar(paquete.Version, origen));
-            CargarListaCopias();
-            BarraActualizacion.Value = 80;
-            TextoProgresoActualizacion.Text = "Cerrando el programa para instalar…";
-            if (paquete.Restaurar)
+            var resultado = await DiagnosticoAccesoBase.EjecutarAsync();
+            BarraBase.Severity = resultado.Correcto ? InfoBarSeverity.Success : InfoBarSeverity.Error;
+            BarraBase.Title = "Base de datos";
+            BarraBase.Message = resultado.Resumen;
+            BarraBase.IsOpen = true;
+
+            if (!string.IsNullOrWhiteSpace(resultado.Error))
             {
-                ActualizacionService.LanzarRestauracionYCerrar(paquete.Ruta);
+                TextoErrorBase.Text = "Error: " + resultado.Error;
+                TextoErrorBase.Visibility = Visibility.Visible;
             }
-            else
+
+            if (!string.IsNullOrWhiteSpace(resultado.Solucion))
             {
-                ActualizacionService.LanzarInstaladorYCerrar(paquete.Ruta);
+                TextoSolucionBase.Text = resultado.Correcto
+                    ? resultado.Solucion
+                    : "Cómo solucionarlo: " + resultado.Solucion;
+                TextoSolucionBase.Visibility = Visibility.Visible;
             }
         }
         catch (Exception ex)
         {
-            Mostrar($"No se pudo instalar: {ex.Message}", InfoBarSeverity.Error);
-            TextoProgresoActualizacion.Text = ex.Message;
-            BotonActualizar.IsEnabled = true;
-            BotonRestaurar.IsEnabled = true;
-            BotonInstalar.IsEnabled = true;
-        }
-    }
-
-    private async Task DescargarDesdeGithubAsync(bool buscarActualizacion)
-    {
-        BotonActualizar.IsEnabled = false;
-        BotonRestaurar.IsEnabled = false;
-        BotonInstalar.IsEnabled = false;
-        BarraActualizacion.Visibility = Visibility.Visible;
-        TextoProgresoActualizacion.Visibility = Visibility.Visible;
-        BarraActualizacion.Value = 0;
-        TextoProgresoActualizacion.Text = "Consultando GitHub Releases…";
-        try
-        {
-            IProgress<(double Porcentaje, string Mensaje)> progreso = new Progress<(double Porcentaje, string Mensaje)>(p =>
-            {
-                BarraActualizacion.Value = p.Porcentaje;
-                TextoProgresoActualizacion.Text = p.Mensaje;
-            });
-
-            ReleaseDisponible release;
-            string titulo;
-            string mensaje;
-            string confirmar;
-            bool restaurar;
-            if (buscarActualizacion)
-            {
-                release = await ActualizacionService.ConsultarAsync();
-                if (!ActualizacionService.HayActualizacion(release))
-                {
-                    Mostrar(
-                        $"Ya tiene la última versión ({ActualizacionService.TextoVersionInstalada}).",
-                        InfoBarSeverity.Success);
-                    TextoProgresoActualizacion.Text = "No hay una versión más reciente.";
-                    BarraActualizacion.Value = 100;
-                    return;
-                }
-
-                titulo = "Descargar actualización";
-                mensaje =
-                    $"Hay una versión nueva: {release.Etiqueta}{Tamano(release)}.\n\n" +
-                    "Se descargará el instalador. Cuando termine, pulse Instalar: " +
-                    "entonces se cerrará el programa y se aplicará la actualización.";
-                confirmar = "Descargar";
-                restaurar = false;
-            }
-            else
-            {
-                release = await ActualizacionService.ConsultarPenultimaAsync();
-                if (ActualizacionService.MismaVersion(release))
-                {
-                    Mostrar(
-                        $"Ya está en la versión anterior publicada ({release.Etiqueta}).",
-                        InfoBarSeverity.Informational);
-                    TextoProgresoActualizacion.Text = "No hay otra versión anterior que instalar.";
-                    BarraActualizacion.Value = 100;
-                    return;
-                }
-
-                titulo = "Descargar versión anterior";
-                mensaje =
-                    $"Se descargará la penúltima versión publicada: {release.Etiqueta}{Tamano(release)}.\n\n" +
-                    "Cuando termine, pulse Instalar. Se cerrará el programa, se desinstalará la versión actual " +
-                    "(los datos en AppData se quedan) y se abrirá ese instalador.";
-                confirmar = "Descargar";
-                restaurar = true;
-            }
-
-            var dialogo = new ContentDialog
-            {
-                Title = titulo,
-                Content = mensaje,
-                PrimaryButtonText = confirmar,
-                CloseButtonText = "Cancelar",
-                DefaultButton = ContentDialogButton.Primary,
-                XamlRoot = XamlRoot
-            };
-            if (await dialogo.ShowAsync() != ContentDialogResult.Primary)
-            {
-                TextoProgresoActualizacion.Text = "Descarga cancelada.";
-                return;
-            }
-
-            var ruta = await ActualizacionService.DescargarInstaladorAsync(release, progreso);
-            ActualizacionService.GuardarInstaladorPendiente(ruta, release, restaurar);
-            MostrarInstaladorPendiente();
-            BarraActualizacion.Value = 100;
-            TextoProgresoActualizacion.Text =
-                $"Descarga lista ({release.Etiqueta}). Pulse Instalar para cerrar el programa y aplicarla.";
-            Mostrar(
-                $"Se descargó {release.Etiqueta}. Pulse Instalar cuando quiera cerrar el programa y actualizar.",
-                InfoBarSeverity.Success);
-        }
-        catch (Exception ex)
-        {
-            var verbo = buscarActualizacion ? "descargar la actualización" : "descargar la versión anterior";
-            Mostrar($"No se pudo {verbo}: {ex.Message}", InfoBarSeverity.Error);
-            TextoProgresoActualizacion.Text = ex.Message;
+            BarraBase.Severity = InfoBarSeverity.Error;
+            BarraBase.Title = "Base de datos";
+            BarraBase.Message = "La comprobación no pudo terminar.";
+            BarraBase.IsOpen = true;
+            TextoErrorBase.Text = "Error: " + ex.Message;
+            TextoErrorBase.Visibility = Visibility.Visible;
+            TextoSolucionBase.Text = "Cierra logística, ábrela de nuevo y repite la comprobación. Si el mensaje se repite, compártelo con quien administra Iderma.";
+            TextoSolucionBase.Visibility = Visibility.Visible;
         }
         finally
         {
-            BotonActualizar.IsEnabled = true;
-            BotonRestaurar.IsEnabled = true;
-            MostrarInstaladorPendiente();
+            AnilloBase.IsActive = false;
+            AnilloBase.Visibility = Visibility.Collapsed;
+            BotonComprobarBase.IsEnabled = true;
         }
     }
 
-    private void MostrarInstaladorPendiente()
+    public void RecargarAreas() => CargarAreas();
+
+    public void RecargarDesplegables() => CargarListasDelArea();
+
+    private void CargarAreas(Guid? seleccionarArea = null, Guid? seleccionarCategoria = null)
     {
-        var paquete = ActualizacionService.LeerInstaladorPendiente();
-        if (paquete is null)
-        {
-            BotonInstalar.Visibility = Visibility.Collapsed;
-            return;
-        }
+        var categoriaLista = seleccionarCategoria
+            ?? (ListaCategorias.SelectedItem as CategoriaMenuDefinicion)?.Id;
+        var categorias = AreasOperativas.Categorias.ToList();
+        ListaCategorias.ItemsSource = categorias;
+        ComboCategoriaArea.ItemsSource = categorias;
 
-        BotonInstalar.Visibility = Visibility.Visible;
-        BotonInstalar.IsEnabled = true;
-        BotonInstalar.Content = $"Instalar {paquete.Etiqueta}";
-        BarraActualizacion.Visibility = Visibility.Visible;
-        TextoProgresoActualizacion.Visibility = Visibility.Visible;
-        BarraActualizacion.Value = 100;
-        if (string.IsNullOrWhiteSpace(TextoProgresoActualizacion.Text) ||
-            TextoProgresoActualizacion.Visibility != Visibility.Visible)
-        {
-            TextoProgresoActualizacion.Text =
-                $"Hay un instalador listo ({paquete.Etiqueta}). Pulse Instalar para cerrar el programa y aplicarlo.";
-        }
-    }
-
-    private static string Tamano(ReleaseDisponible release) =>
-        release.TamanoBytes > 0 ? $" ({release.TamanoBytes / 1_048_576d:0.0} MB)" : string.Empty;
-
-    private void CargarAreas(Guid? seleccionar = null)
-    {
-        var areaLista = seleccionar
-            ?? (ListaAreas.SelectedItem as AreaDefinicion)?.Id
+        var areaLista = seleccionarArea
+            ?? (ListaAreas.SelectedItem as AreaListaVista)?.Id
             ?? (ComboAreaListas.SelectedItem as AreaDefinicion)?.Id;
         var areas = AreasOperativas.Todas.ToList();
-        ListaAreas.ItemsSource = areas;
+        var vistas = areas.Select(a => new AreaListaVista(
+            a.Id,
+            a.Nombre,
+            a.Glifo,
+            AreasOperativas.TituloCategoria(a.CategoriaId),
+            a)).ToList();
+        ListaAreas.ItemsSource = vistas;
         ComboAreaListas.ItemsSource = areas;
+
+        if (categoriaLista is Guid idCat)
+        {
+            var cat = categorias.FirstOrDefault(c => c.Id == idCat);
+            if (cat is not null)
+            {
+                ListaCategorias.SelectedItem = cat;
+            }
+        }
+        else if (categorias.Count > 0 && ListaCategorias.SelectedIndex < 0)
+        {
+            ListaCategorias.SelectedIndex = 0;
+        }
+
         if (areaLista is Guid id)
         {
-            var coincidencia = areas.FirstOrDefault(a => a.Id == id);
+            var coincidencia = vistas.FirstOrDefault(a => a.Id == id);
+            var areaCombo = areas.FirstOrDefault(a => a.Id == id);
             if (coincidencia is not null)
             {
                 ListaAreas.SelectedItem = coincidencia;
-                ComboAreaListas.SelectedItem = coincidencia;
+            }
+
+            if (areaCombo is not null)
+            {
+                ComboAreaListas.SelectedItem = areaCombo;
                 return;
             }
         }
@@ -261,13 +148,24 @@ public sealed partial class SettingsPage : Page
     private void ComboAreaListas_SelectionChanged(object sender, SelectionChangedEventArgs e) =>
         CargarListasDelArea();
 
-    private void ListaAreas_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    private void ListaCategorias_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (ListaAreas.SelectedItem is not AreaDefinicion area)
+        if (ListaCategorias.SelectedItem is not CategoriaMenuDefinicion categoria)
         {
             return;
         }
 
+        CajaNombreCategoria.Text = categoria.Nombre;
+    }
+
+    private void ListaAreas_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (ListaAreas.SelectedItem is not AreaListaVista vista)
+        {
+            return;
+        }
+
+        var area = vista.Area;
         CajaNombreArea.Text = area.Nombre;
         CajaDescripcionArea.Text = area.Descripcion;
         CajaPrefijoArea.Text = area.Prefijo;
@@ -278,6 +176,7 @@ public sealed partial class SettingsPage : Page
             _ => 0
         };
         SeleccionarIcono(area.Glifo);
+        ComboCategoriaArea.SelectedItem = AreasOperativas.Categorias.FirstOrDefault(c => c.Id == area.CategoriaId);
     }
 
     private void CargarIconosArea()
@@ -310,65 +209,73 @@ public sealed partial class SettingsPage : Page
             ? opcion.Glifo
             : "\uE8F1";
 
+    private Guid? CategoriaElegida() =>
+        ComboCategoriaArea.SelectedItem is CategoriaMenuDefinicion categoria
+            ? categoria.Id
+            : AreasOperativas.Categorias.FirstOrDefault()?.Id;
+
     private AreaOperativa PlantillaElegida() =>
         ComboPlantillaArea.SelectedItem is ComboBoxItem { Tag: string etiqueta } &&
         Enum.TryParse<AreaOperativa>(etiqueta, out var plantilla)
             ? plantilla
             : AreaOperativa.Clinica;
 
-    private void AgregarArea_Click(object sender, RoutedEventArgs e)
+    private void AgregarCategoria_Click(object sender, RoutedEventArgs e)
     {
-        var nombre = CajaNombreArea.Text?.Trim() ?? string.Empty;
+        var nombre = CajaNombreCategoria.Text?.Trim() ?? string.Empty;
         if (nombre.Length == 0)
         {
-            Mostrar("Escriba el nombre de la nueva área.", InfoBarSeverity.Warning);
+            Mostrar("Escriba el nombre de la nueva categoría.", InfoBarSeverity.Warning);
             return;
         }
 
-        var creada = AreasOperativas.Agregar(nombre, CajaDescripcionArea.Text ?? string.Empty, CajaPrefijoArea.Text ?? string.Empty, PlantillaElegida(), GlifoElegido());
-        RefrescarAreasEnApp(creada.Id);
-        Mostrar($"Se agregó el área «{nombre}» (código {creada.Prefijo}_001) al menú lateral.", InfoBarSeverity.Success);
+        var creada = AreasOperativas.AgregarCategoria(nombre, string.Empty);
+        RefrescarAreasEnApp(seleccionarCategoria: creada.Id);
+        Mostrar($"Se agregó la categoría «{nombre}» al menú lateral.", InfoBarSeverity.Success);
     }
 
-    private void GuardarArea_Click(object sender, RoutedEventArgs e)
+    private void GuardarCategoria_Click(object sender, RoutedEventArgs e)
     {
-        if (ListaAreas.SelectedItem is not AreaDefinicion area)
+        if (ListaCategorias.SelectedItem is not CategoriaMenuDefinicion categoria)
         {
-            Mostrar("Seleccione un área de la lista para cambiarle el nombre.", InfoBarSeverity.Warning);
+            Mostrar("Seleccione una categoría de la lista.", InfoBarSeverity.Warning);
             return;
         }
 
-        var nombre = CajaNombreArea.Text?.Trim() ?? string.Empty;
+        var nombre = CajaNombreCategoria.Text?.Trim() ?? string.Empty;
         if (nombre.Length == 0)
         {
-            Mostrar("El nombre del área no puede quedar vacío.", InfoBarSeverity.Warning);
+            Mostrar("El nombre de la categoría no puede quedar vacío.", InfoBarSeverity.Warning);
             return;
         }
 
-        AreasOperativas.Actualizar(area.Id, nombre, CajaDescripcionArea.Text ?? string.Empty, CajaPrefijoArea.Text ?? string.Empty, PlantillaElegida(), GlifoElegido());
-        var guardada = AreasOperativas.Obtener(area.Id);
-        App.Instance.Repositorio.ActualizarIndiceBusqueda();
-        RefrescarAreasEnApp(area.Id);
-        var prefijo = guardada?.Prefijo ?? string.Empty;
-        Mostrar($"Se guardó «{nombre}» con prefijo de código {prefijo}. Las fichas nuevas usarán {prefijo}_001, {prefijo}_002…", InfoBarSeverity.Success);
+        AreasOperativas.ActualizarCategoria(categoria.Id, nombre, string.Empty);
+        RefrescarAreasEnApp(seleccionarCategoria: categoria.Id);
+        Mostrar($"Se guardó la categoría «{nombre}».", InfoBarSeverity.Success);
     }
 
-    private async void BorrarArea_Click(object sender, RoutedEventArgs e)
+    private async void BorrarCategoria_Click(object sender, RoutedEventArgs e)
     {
-        if (ListaAreas.SelectedItem is not AreaDefinicion area)
+        if (ListaCategorias.SelectedItem is not CategoriaMenuDefinicion categoria)
         {
-            Mostrar("Seleccione un área para borrarla.", InfoBarSeverity.Warning);
+            Mostrar("Seleccione una categoría para borrarla.", InfoBarSeverity.Warning);
             return;
         }
 
-        var productos = App.Instance.Repositorio.Contar(area.Id);
+        var secciones = AreasOperativas.DeCategoria(categoria.Id).Count;
+        if (secciones > 0)
+        {
+            Mostrar(
+                $"Mueva las {secciones} sección(es) a otra categoría antes de borrar «{categoria.Nombre}».",
+                InfoBarSeverity.Warning);
+            return;
+        }
+
         var dialogo = new ContentDialog
         {
-            Title = "Borrar área",
-            Content = productos == 0
-                ? $"Se eliminará «{area.Nombre}» del menú."
-                : $"Se eliminará «{area.Nombre}». {productos} producto(s) quedarán sin área y seguirán en el catálogo.",
-            PrimaryButtonText = "Borrar área",
+            Title = "Borrar categoría",
+            Content = $"Se eliminará «{categoria.Nombre}» del menú.",
+            PrimaryButtonText = "Borrar categoría",
             CloseButtonText = "Cancelar",
             DefaultButton = ContentDialogButton.Close,
             XamlRoot = XamlRoot
@@ -379,9 +286,122 @@ public sealed partial class SettingsPage : Page
             return;
         }
 
-        var nombreBorrado = area.Nombre;
-        App.Instance.Repositorio.ReasignarArea(area.Id, null);
-        AreasOperativas.Eliminar(area.Id);
+        var nombreBorrado = categoria.Nombre;
+        AreasOperativas.EliminarCategoria(categoria.Id);
+        RefrescarAreasEnApp();
+        Mostrar($"Se borró la categoría «{nombreBorrado}».", InfoBarSeverity.Success);
+    }
+
+    private void SubirCategoria_Click(object sender, RoutedEventArgs e) => MoverCategoriaSeleccionada(-1);
+
+    private void BajarCategoria_Click(object sender, RoutedEventArgs e) => MoverCategoriaSeleccionada(1);
+
+    private void MoverCategoriaSeleccionada(int desplazamiento)
+    {
+        if (ListaCategorias.SelectedItem is not CategoriaMenuDefinicion categoria)
+        {
+            Mostrar("Seleccione una categoría para cambiar su orden.", InfoBarSeverity.Warning);
+            return;
+        }
+
+        if (!AreasOperativas.MoverCategoria(categoria.Id, desplazamiento))
+        {
+            Mostrar(desplazamiento < 0
+                ? "Esa categoría ya está al inicio."
+                : "Esa categoría ya está al final.", InfoBarSeverity.Informational);
+            return;
+        }
+
+        RefrescarAreasEnApp(seleccionarCategoria: categoria.Id);
+        Mostrar($"La categoría «{categoria.Nombre}» cambió de posición en el menú.", InfoBarSeverity.Success);
+    }
+
+    private void AgregarArea_Click(object sender, RoutedEventArgs e)
+    {
+        var nombre = CajaNombreArea.Text?.Trim() ?? string.Empty;
+        if (nombre.Length == 0)
+        {
+            Mostrar("Escriba el nombre de la nueva sección.", InfoBarSeverity.Warning);
+            return;
+        }
+
+        if (CategoriaElegida() is null)
+        {
+            Mostrar("Elija una categoría para la sección.", InfoBarSeverity.Warning);
+            return;
+        }
+
+        var creada = AreasOperativas.Agregar(
+            nombre,
+            CajaDescripcionArea.Text ?? string.Empty,
+            CajaPrefijoArea.Text ?? string.Empty,
+            PlantillaElegida(),
+            GlifoElegido(),
+            CategoriaElegida());
+        RefrescarAreasEnApp(creada.Id);
+        Mostrar($"Se agregó la sección «{nombre}» (código {creada.Prefijo}_001) al menú lateral.", InfoBarSeverity.Success);
+    }
+
+    private void GuardarArea_Click(object sender, RoutedEventArgs e)
+    {
+        if (ListaAreas.SelectedItem is not AreaListaVista vista)
+        {
+            Mostrar("Seleccione una sección de la lista para guardarla.", InfoBarSeverity.Warning);
+            return;
+        }
+
+        var nombre = CajaNombreArea.Text?.Trim() ?? string.Empty;
+        if (nombre.Length == 0)
+        {
+            Mostrar("El nombre de la sección no puede quedar vacío.", InfoBarSeverity.Warning);
+            return;
+        }
+
+        AreasOperativas.Actualizar(
+            vista.Id,
+            nombre,
+            CajaDescripcionArea.Text ?? string.Empty,
+            CajaPrefijoArea.Text ?? string.Empty,
+            PlantillaElegida(),
+            GlifoElegido(),
+            CategoriaElegida());
+        var guardada = AreasOperativas.Obtener(vista.Id);
+        App.Instance.Repositorio.ActualizarIndiceBusqueda();
+        RefrescarAreasEnApp(vista.Id);
+        var prefijo = guardada?.Prefijo ?? string.Empty;
+        var categoria = AreasOperativas.TituloCategoria(guardada?.CategoriaId);
+        Mostrar($"Se guardó «{nombre}» en «{categoria}» con prefijo {prefijo}.", InfoBarSeverity.Success);
+    }
+
+    private async void BorrarArea_Click(object sender, RoutedEventArgs e)
+    {
+        if (ListaAreas.SelectedItem is not AreaListaVista vista)
+        {
+            Mostrar("Seleccione una sección para borrarla.", InfoBarSeverity.Warning);
+            return;
+        }
+
+        var productos = App.Instance.Repositorio.Contar(vista.Id);
+        var dialogo = new ContentDialog
+        {
+            Title = "Borrar sección",
+            Content = productos == 0
+                ? $"Se eliminará «{vista.Nombre}» del menú."
+                : $"Se eliminará «{vista.Nombre}». {productos} producto(s) quedarán sin área y seguirán en el catálogo.",
+            PrimaryButtonText = "Borrar sección",
+            CloseButtonText = "Cancelar",
+            DefaultButton = ContentDialogButton.Close,
+            XamlRoot = XamlRoot
+        };
+
+        if (await dialogo.ShowAsync() != ContentDialogResult.Primary)
+        {
+            return;
+        }
+
+        var nombreBorrado = vista.Nombre;
+        App.Instance.Repositorio.ReasignarArea(vista.Id, null);
+        AreasOperativas.Eliminar(vista.Id);
         RefrescarAreasEnApp();
         Mostrar($"Se borró «{nombreBorrado}». Los productos de esa lista quedaron sin área.", InfoBarSeverity.Success);
     }
@@ -392,31 +412,38 @@ public sealed partial class SettingsPage : Page
 
     private void MoverAreaSeleccionada(int desplazamiento)
     {
-        if (ListaAreas.SelectedItem is not AreaDefinicion area)
+        if (ListaAreas.SelectedItem is not AreaListaVista vista)
         {
-            Mostrar("Seleccione un área para cambiar su orden.", InfoBarSeverity.Warning);
+            Mostrar("Seleccione una sección para cambiar su orden.", InfoBarSeverity.Warning);
             return;
         }
 
-        if (!AreasOperativas.Mover(area.Id, desplazamiento))
+        if (!AreasOperativas.Mover(vista.Id, desplazamiento))
         {
             Mostrar(desplazamiento < 0
-                ? "Esa área ya está al inicio de la lista."
-                : "Esa área ya está al final de la lista.", InfoBarSeverity.Informational);
+                ? "Esa sección ya está al inicio de su categoría."
+                : "Esa sección ya está al final de su categoría.", InfoBarSeverity.Informational);
             return;
         }
 
-        RefrescarAreasEnApp(area.Id);
-        Mostrar($"El orden del menú ahora pone «{area.Nombre}» en la posición {AreasOperativas.Obtener(area.Id)?.Orden}.", InfoBarSeverity.Success);
+        RefrescarAreasEnApp(vista.Id);
+        Mostrar($"El orden de «{vista.Nombre}» dentro de su categoría se actualizó.", InfoBarSeverity.Success);
     }
 
-    private void RefrescarAreasEnApp(Guid? seleccionar = null)
+    private void RefrescarAreasEnApp(Guid? seleccionar = null, Guid? seleccionarCategoria = null)
     {
-        CargarAreas(seleccionar);
+        CargarAreas(seleccionar, seleccionarCategoria);
         CargarListasDelArea();
         ActualizarResumen();
         App.Instance.MainAppWindow?.ActualizarMenuAreas();
     }
+
+    private sealed record AreaListaVista(
+        Guid Id,
+        string Nombre,
+        string Glifo,
+        string CategoriaTitulo,
+        AreaDefinicion Area);
 
     private void CargarPreferencias()
     {
@@ -610,6 +637,28 @@ public sealed partial class SettingsPage : Page
     private void ComboListas_SelectionChanged(object sender, SelectionChangedEventArgs e) =>
         CargarValores();
 
+    private List<string> ValoresEditables()
+    {
+        if (ListaActual is null)
+        {
+            return [];
+        }
+
+        var propia = Catalogos.Copia(ListaActual.Clave);
+        if (propia.Count > 0)
+        {
+            return propia;
+        }
+
+        var separador = ListaActual.Clave.IndexOf('_');
+        if (separador < 0)
+        {
+            return propia;
+        }
+
+        return Catalogos.Obtener(AreaActual, ListaActual.Clave[(separador + 1)..]).ToList();
+    }
+
     private void CargarValores()
     {
         if (ListaActual is null)
@@ -617,7 +666,7 @@ public sealed partial class SettingsPage : Page
             return;
         }
 
-        ListaValores.ItemsSource = Catalogos.Copia(ListaActual.Clave);
+        ListaValores.ItemsSource = ValoresEditables();
         CajaValor.Text = string.Empty;
     }
 
@@ -643,7 +692,7 @@ public sealed partial class SettingsPage : Page
             return;
         }
 
-        var lista = Catalogos.Copia(ListaActual.Clave);
+        var lista = ValoresEditables();
         if (lista.Any(v => v.Equals(valor, StringComparison.CurrentCultureIgnoreCase)))
         {
             Mostrar("Ese valor ya existe en la lista.", InfoBarSeverity.Warning);
@@ -671,7 +720,7 @@ public sealed partial class SettingsPage : Page
             return;
         }
 
-        var lista = Catalogos.Copia(ListaActual.Clave);
+        var lista = ValoresEditables();
         var indice = lista.FindIndex(v => v.Equals(anterior, StringComparison.CurrentCultureIgnoreCase));
         if (indice < 0)
         {
@@ -692,7 +741,7 @@ public sealed partial class SettingsPage : Page
             return;
         }
 
-        var lista = Catalogos.Copia(ListaActual.Clave);
+        var lista = ValoresEditables();
         lista.RemoveAll(v => v.Equals(valor, StringComparison.CurrentCultureIgnoreCase));
         Catalogos.Reemplazar(ListaActual.Clave, lista);
         CargarValores();
@@ -866,7 +915,7 @@ public sealed partial class SettingsPage : Page
         {
             if (await ExcelUi.GuardarPlantillaAsync())
             {
-                Mostrar("Se guardó la plantilla de Excel.", InfoBarSeverity.Success);
+                Mostrar("Se guardó la plantilla con los productos del inventario.", InfoBarSeverity.Success);
             }
         }
         catch (Exception ex)
@@ -986,6 +1035,16 @@ public sealed partial class SettingsPage : Page
     private void IniciarTourTrabajador_Click(object sender, RoutedEventArgs e)
     {
         App.Instance.MainAppWindow?.IniciarTourTrabajadorNuevo();
+    }
+
+    private void IniciarGuiaSeccion_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement { Tag: string id } || string.IsNullOrWhiteSpace(id))
+        {
+            return;
+        }
+
+        App.Instance.MainAppWindow?.IniciarGuiaSeccion(id);
     }
 
     private void Mostrar(string mensaje, InfoBarSeverity severidad)

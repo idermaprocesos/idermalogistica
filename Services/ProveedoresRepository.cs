@@ -67,6 +67,7 @@ public sealed class ProveedoresRepository
                     proveedor.Contacto = (proveedor.Contacto ?? string.Empty).Trim();
                     proveedor.Notas = (proveedor.Notas ?? string.Empty).Trim();
                     proveedor.Calificacion = CalificacionProveedor.Normalizar(proveedor.Calificacion);
+                    NormalizarGestionCompra(proveedor);
                     if (string.IsNullOrWhiteSpace(proveedor.Dato1) &&
                         string.IsNullOrWhiteSpace(proveedor.Dato2) &&
                         !string.IsNullOrWhiteSpace(proveedor.Contacto))
@@ -148,6 +149,7 @@ public sealed class ProveedoresRepository
             proveedor.Notas = (proveedor.Notas ?? string.Empty).Trim();
             proveedor.Calificacion = CalificacionProveedor.Normalizar(proveedor.Calificacion);
             NormalizarContacto(proveedor);
+            NormalizarGestionCompra(proveedor);
 
             var indice = _items.FindIndex(p => p.Id == proveedor.Id);
             if (indice < 0)
@@ -450,6 +452,46 @@ public sealed class ProveedoresRepository
         }
     }
 
+    private static void NormalizarGestionCompra(ProveedorRegistro proveedor)
+    {
+        proveedor.Ruc = ProveedorRegistro.NormalizarRuc(proveedor.Ruc);
+        proveedor.RazonSocial = (proveedor.RazonSocial ?? string.Empty).Trim();
+        proveedor.NumeroCuenta = (proveedor.NumeroCuenta ?? string.Empty).Trim();
+        proveedor.Cci = ProveedorRegistro.NormalizarCci(proveedor.Cci);
+        proveedor.BancoOtro = (proveedor.BancoOtro ?? string.Empty).Trim();
+        var bancoCrudo = (proveedor.Banco ?? string.Empty).Trim();
+        if (bancoCrudo.Length == 0)
+        {
+            proveedor.Banco = string.Empty;
+            proveedor.BancoOtro = string.Empty;
+        }
+        else if (BancoProveedor.Todas.Any(b => string.Equals(b, bancoCrudo, StringComparison.OrdinalIgnoreCase)))
+        {
+            proveedor.Banco = BancoProveedor.Normalizar(bancoCrudo);
+            if (!BancoProveedor.EsOtras(proveedor.Banco))
+            {
+                proveedor.BancoOtro = string.Empty;
+            }
+        }
+        else
+        {
+            proveedor.Banco = BancoProveedor.Otras;
+            if (proveedor.BancoOtro.Length == 0)
+            {
+                proveedor.BancoOtro = bancoCrudo;
+            }
+        }
+
+        proveedor.TiempoEntregaDias = Math.Clamp(proveedor.TiempoEntregaDias, 0, 365);
+        proveedor.UnidadContrato = (proveedor.UnidadContrato ?? string.Empty).Trim();
+        if (!proveedor.AcuerdoContrato || proveedor.CantidadContrato <= 0)
+        {
+            proveedor.AcuerdoContrato = false;
+            proveedor.CantidadContrato = 0;
+            proveedor.UnidadContrato = string.Empty;
+        }
+    }
+
     private static void NormalizarContacto(ProveedorRegistro proveedor)
     {
         var canal1Vacio = string.IsNullOrWhiteSpace(proveedor.Canal1);
@@ -524,6 +566,7 @@ public sealed class ProveedoresRepository
                     {
                         var proveedor = Clonar(cambio);
                         NormalizarContacto(proveedor);
+                        NormalizarGestionCompra(proveedor);
                         _items.Add(proveedor);
                     }
 
@@ -541,6 +584,7 @@ public sealed class ProveedoresRepository
                     {
                         var proveedor = Clonar(cambio);
                         NormalizarContacto(proveedor);
+                        NormalizarGestionCompra(proveedor);
                         var indice = _items.FindIndex(p => p.Id == proveedor.Id);
                         if (indice >= 0)
                         {
@@ -574,6 +618,36 @@ public sealed class ProveedoresRepository
         return huboCambio;
     }
 
+    public static ProveedorRegistro Copiar(ProveedorRegistro proveedor) => Clonar(proveedor);
+
+    /// <summary>Restaura un proveedor eliminado o sobrescribe el actual por Id, sin validar nombre duplicado de otros.</summary>
+    public bool Restaurar(ProveedorRegistro proveedor)
+    {
+        if (proveedor.Id == Guid.Empty || string.IsNullOrWhiteSpace(proveedor.Nombre))
+        {
+            return false;
+        }
+
+        lock (_candado)
+        {
+            var copia = Clonar(proveedor);
+            NormalizarContacto(copia);
+            NormalizarGestionCompra(copia);
+            var indice = _items.FindIndex(p => p.Id == copia.Id);
+            if (indice < 0)
+            {
+                _items.Add(copia);
+            }
+            else
+            {
+                _items[indice] = copia;
+            }
+
+            GuardarInterno();
+            return true;
+        }
+    }
+
     private static ProveedorRegistro Clonar(ProveedorRegistro proveedor) => new()
     {
         Id = proveedor.Id,
@@ -585,6 +659,16 @@ public sealed class ProveedoresRepository
         Dato2 = proveedor.Dato2,
         Notas = proveedor.Notas,
         Calificacion = proveedor.Calificacion,
+        Ruc = proveedor.Ruc,
+        RazonSocial = proveedor.RazonSocial,
+        Banco = proveedor.Banco,
+        BancoOtro = proveedor.BancoOtro,
+        NumeroCuenta = proveedor.NumeroCuenta,
+        Cci = proveedor.Cci,
+        TiempoEntregaDias = proveedor.TiempoEntregaDias,
+        AcuerdoContrato = proveedor.AcuerdoContrato,
+        CantidadContrato = proveedor.CantidadContrato,
+        UnidadContrato = proveedor.UnidadContrato,
         FechaAgregado = proveedor.FechaAgregado,
         FechaContacto = proveedor.FechaContacto
     };
@@ -598,6 +682,16 @@ public sealed class ProveedoresRepository
         && actual.Dato2 == cambio.Dato2
         && actual.Notas == cambio.Notas
         && actual.Calificacion == cambio.Calificacion
+        && actual.Ruc == cambio.Ruc
+        && actual.RazonSocial == cambio.RazonSocial
+        && actual.Banco == cambio.Banco
+        && actual.BancoOtro == cambio.BancoOtro
+        && actual.NumeroCuenta == cambio.NumeroCuenta
+        && actual.Cci == cambio.Cci
+        && actual.TiempoEntregaDias == cambio.TiempoEntregaDias
+        && actual.AcuerdoContrato == cambio.AcuerdoContrato
+        && actual.CantidadContrato == cambio.CantidadContrato
+        && actual.UnidadContrato == cambio.UnidadContrato
         && actual.FechaAgregado == cambio.FechaAgregado
         && actual.FechaContacto == cambio.FechaContacto;
 

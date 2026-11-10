@@ -1,4 +1,4 @@
-using Microsoft.UI.Dispatching;
+    using Microsoft.UI.Dispatching;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -24,6 +24,11 @@ public sealed partial class MainWindow : Window
     private bool _tourEnCurso;
     private bool _avanzandoTour;
     private int _secuenciaTour;
+    private IReadOnlyList<PasoTour> _pasosTour = TourTrabajadorNuevo.Pasos;
+    private NavigationViewItem? _itemInventarioGrupo;
+    private FontIcon? _chevronInventario;
+    private bool _inventarioExpandido;
+    private readonly List<object> _hijosInventarioVisibles = [];
 
     public MainWindow()
     {
@@ -35,15 +40,15 @@ public sealed partial class MainWindow : Window
 
         ExtendsContentIntoTitleBar = true;
         SetTitleBar(AppTitleBar);
+        TitleBar.SetIsDragRegion(CajaBusquedaGlobal, false);
         Iderma.Shell.BotonLauncher.Colocar(AppTitleBar);
         AppWindow.TitleBar.PreferredHeightOption = TitleBarHeightOption.Tall;
         AppWindow.SetIcon("img/logo.ico");
-        if (AppWindow.Presenter is OverlappedPresenter presentador)
-        {
-            presentador.Maximize();
-        }
+        // Maximizar tras Activated: en el constructor WinUI deja la ventana a medias en DPI/monitores.
+        Activated += AlAbrirPrimeraVez;
         AppWindow.Closing += AppWindow_Closing;
         _navegacionAnterior = NavView.SelectedItem;
+        // Desplegable en el mismo nivel del menú (sin MenuItems anidados): así no hay sangrado de WinUI.
         ActualizarMenuAreas();
         NavFrame.Navigate(typeof(HomePage));
         App.Instance.Repositorio.InventarioExternoActualizado += (_, _) =>
@@ -62,11 +67,25 @@ public sealed partial class MainWindow : Window
             });
         SolicitudesClinicaNube.Cambiado += () =>
             DispatcherQueue.TryEnqueue(ActualizarBadgeNotificaciones);
+        SolicitudesIncidenciasNube.Cambiado += () =>
+            DispatcherQueue.TryEnqueue(ActualizarBadgeNotificaciones);
+        SolicitudesIncidenciasNube.NuevaPendiente += _ =>
+            DispatcherQueue.TryEnqueue(ActualizarBadgeNotificaciones);
+        AprobacionBorradoInventario.Cambiado += () =>
+            DispatcherQueue.TryEnqueue(ActualizarBadgeNotificaciones);
+        AreasOperativas.Cambiaron += () =>
+            DispatcherQueue.TryEnqueue(AplicarAreasRemotas);
+        Catalogos.Cambiaron += () =>
+            DispatcherQueue.TryEnqueue(AplicarCatalogosRemotos);
+        DispatcherQueue.TryEnqueue(DispatcherQueuePriority.Low, AreasOperativasNube.Iniciar);
+        DispatcherQueue.TryEnqueue(DispatcherQueuePriority.Low, CatalogosNube.Iniciar);
         DispatcherQueue.TryEnqueue(DispatcherQueuePriority.Low, IniciarCopiasTrasAbrir);
         DispatcherQueue.TryEnqueue(DispatcherQueuePriority.Low, () =>
         {
             AvisoWindowsSolicitudes.Preparar(DispatcherQueue);
             SolicitudesClinicaNube.Iniciar(DispatcherQueue);
+            SolicitudesIncidenciasNube.Iniciar(DispatcherQueue);
+            AprobacionBorradoInventario.Iniciar(DispatcherQueue);
             ActualizarBadgeNotificaciones();
         });
     }
@@ -76,6 +95,30 @@ public sealed partial class MainWindow : Window
         if (NavFrame.Content is IVistaInventario vista)
         {
             vista.AplicarCambioInventario();
+        }
+    }
+
+    private void AplicarAreasRemotas()
+    {
+        ActualizarMenuAreas();
+        RefrescarVistaInventario();
+        if (NavFrame.Content is SettingsPage ajustes)
+        {
+            ajustes.RecargarAreas();
+            ajustes.RecargarDesplegables();
+        }
+    }
+
+    private void AplicarCatalogosRemotos()
+    {
+        if (NavFrame.Content is AreaPage area)
+        {
+            area.RecargarDesplegables();
+        }
+
+        if (NavFrame.Content is SettingsPage ajustes)
+        {
+            ajustes.RecargarDesplegables();
         }
     }
 
@@ -127,7 +170,9 @@ public sealed partial class MainWindow : Window
 
     private void ActualizarBadgeNotificaciones()
     {
-        var pendientes = SolicitudesClinicaNube.Pendientes;
+        var pendientes = SolicitudesClinicaNube.Pendientes
+            + SolicitudesIncidenciasNube.Pendientes
+            + AprobacionBorradoInventario.Pendientes;
         ItemNotificaciones.InfoBadge = pendientes > 0
             ? new InfoBadge { Value = pendientes }
             : null;
@@ -135,75 +180,267 @@ public sealed partial class MainWindow : Window
 
     public async void IniciarTourTrabajadorNuevo()
     {
+        await IniciarTourConPasosAsync(TourTrabajadorNuevo.Pasos);
+    }
+
+    public async void IniciarGuiaSeccion(string id)
+    {
+        var guia = TourTrabajadorNuevo.ObtenerGuia(id);
+        if (guia is null || guia.Pasos.Count == 0)
+        {
+            return;
+        }
+
+        await IniciarTourConPasosAsync(guia.Pasos);
+    }
+
+    private async Task IniciarTourConPasosAsync(IReadOnlyList<PasoTour> pasos)
+    {
         _secuenciaTour++;
+        _pasosTour = pasos;
         _tourEnCurso = true;
         _indiceTour = 0;
         NavView.IsPaneOpen = true;
         await MostrarPasoTourAsync();
     }
 
-    public void ActualizarMenuAreas()
+    private void AlAbrirPrimeraVez(object sender, WindowActivatedEventArgs args)
     {
-        var items = NavView.MenuItems;
-        var indiceEncabezado = -1;
-        for (var i = 0; i < items.Count; i++)
-        {
-            if (items[i] is NavigationViewItemHeader { Content: string texto } &&
-                texto.Equals("Áreas operativas", StringComparison.CurrentCultureIgnoreCase))
-            {
-                indiceEncabezado = i;
-                break;
-            }
-        }
-
-        if (indiceEncabezado < 0)
+        if (args.WindowActivationState == WindowActivationState.Deactivated)
         {
             return;
         }
 
-        var seleccionado = (NavView.SelectedItem as NavigationViewItem)?.Tag as string;
-        var quitar = indiceEncabezado + 1;
-        while (quitar < items.Count && EsItemArea(items[quitar]))
+        Activated -= AlAbrirPrimeraVez;
+        if (AppWindow.Presenter is OverlappedPresenter presentador)
         {
-            items.RemoveAt(quitar);
-        }
-
-        var insertar = indiceEncabezado + 1;
-        foreach (var area in AreasOperativas.Todas)
-        {
-            items.Insert(insertar++, CrearItemArea(area.Nombre, AreasOperativas.EtiquetaMenu(area.Id), area.Glifo));
-        }
-
-        items.Insert(insertar, CrearItemArea("Sin área", AreasOperativas.EtiquetaSinArea, "\uE8F1"));
-
-        if (!string.IsNullOrEmpty(seleccionado))
-        {
-            foreach (var elemento in items.OfType<NavigationViewItem>())
-            {
-                if (Equals(elemento.Tag, seleccionado))
-                {
-                    _navegandoInterno = true;
-                    NavView.SelectedItem = elemento;
-                    _navegandoInterno = false;
-                    break;
-                }
-            }
+            presentador.Maximize();
         }
     }
 
-    private static bool EsItemArea(object elemento) =>
-        elemento is NavigationViewItem { Tag: string etiqueta } &&
-        (etiqueta.StartsWith(AreasOperativas.PrefijoEtiqueta, StringComparison.OrdinalIgnoreCase) ||
-         etiqueta is "clinica" or "oficina" or "limpieza" ||
-         etiqueta == AreasOperativas.EtiquetaSinArea);
+    public void ActualizarMenuAreas()
+    {
+        AsegurarCabeceraInventario();
+        if (_itemInventarioGrupo is null)
+        {
+            return;
+        }
+
+        var menu = NavView.MenuItems;
+        var seleccionado = (NavView.SelectedItem as NavigationViewItem)?.Tag as string;
+        var inicio = menu.IndexOf(_itemInventarioGrupo) + 1;
+        if (inicio <= 0)
+        {
+            return;
+        }
+
+        while (inicio < menu.Count && EsItemBloqueInventario(menu[inicio]))
+        {
+            menu.RemoveAt(inicio);
+        }
+
+        _hijosInventarioVisibles.Clear();
+        var insertar = inicio;
+
+        void AgregarAlDesplegable(object elemento)
+        {
+            menu.Insert(insertar++, elemento);
+            _hijosInventarioVisibles.Add(elemento);
+        }
+
+        void ColocarFueraDelDesplegable(NavigationViewItem fijo)
+        {
+            if (menu.Contains(fijo))
+            {
+                menu.Remove(fijo);
+            }
+
+            fijo.Visibility = Visibility.Visible;
+            menu.Insert(insertar++, fijo);
+        }
+
+        if (menu.Contains(ItemCatalogo))
+        {
+            menu.Remove(ItemCatalogo);
+        }
+
+        AgregarAlDesplegable(ItemCatalogo);
+
+        foreach (var categoria in AreasOperativas.Categorias)
+        {
+            AgregarAlDesplegable(new NavigationViewItemHeader
+            {
+                Content = categoria.Nombre,
+                Tag = AreasOperativas.EtiquetaCategoria(categoria.Id)
+            });
+            foreach (var area in AreasOperativas.DeCategoria(categoria.Id))
+            {
+                AgregarAlDesplegable(CrearItemArea(area.Nombre, AreasOperativas.EtiquetaMenu(area.Id), area.Glifo));
+            }
+        }
+
+        foreach (var area in AreasOperativas.DeCategoria(null))
+        {
+            AgregarAlDesplegable(CrearItemArea(area.Nombre, AreasOperativas.EtiquetaMenu(area.Id), area.Glifo));
+        }
+
+        AgregarAlDesplegable(CrearItemArea("Sin área", AreasOperativas.EtiquetaSinArea, "\uE8F1"));
+
+        // Registro y Vencimientos quedan fuera, debajo del desplegable.
+        ColocarFueraDelDesplegable(ItemRegistro);
+        ColocarFueraDelDesplegable(ItemCaducidad);
+        AplicarExpansionInventario();
+
+        if (string.IsNullOrEmpty(seleccionado))
+        {
+            return;
+        }
+
+        foreach (var elemento in RecorrerMenu(menu))
+        {
+            if (!Equals(elemento.Tag, seleccionado))
+            {
+                continue;
+            }
+
+            ExpandirInventario();
+            _navegandoInterno = true;
+            NavView.SelectedItem = elemento;
+            _navegandoInterno = false;
+            break;
+        }
+    }
+
+    private void AsegurarCabeceraInventario()
+    {
+        var menu = NavView.MenuItems;
+        if (_itemInventarioGrupo is not null && menu.Contains(_itemInventarioGrupo))
+        {
+            return;
+        }
+
+        var indice = -1;
+        for (var i = 0; i < menu.Count; i++)
+        {
+            if (menu[i] is NavigationViewItem { Tag: "catalogo" })
+            {
+                indice = i;
+                break;
+            }
+        }
+
+        if (indice < 0)
+        {
+            return;
+        }
+
+        if (indice > 0 &&
+            menu[indice - 1] is NavigationViewItemHeader encabezado &&
+            encabezado.Content is string texto &&
+            texto.Equals("Inventario", StringComparison.CurrentCultureIgnoreCase))
+        {
+            menu.RemoveAt(indice - 1);
+            indice--;
+        }
+
+        _chevronInventario = new FontIcon
+        {
+            Glyph = "\uE70D",
+            FontSize = 12,
+            Margin = new Thickness(8, 0, 0, 0),
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        var contenido = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 0,
+            Children =
+            {
+                new TextBlock
+                {
+                    Text = "Inventario",
+                    VerticalAlignment = VerticalAlignment.Center
+                },
+                _chevronInventario
+            }
+        };
+        _itemInventarioGrupo = new NavigationViewItem
+        {
+            Content = contenido,
+            Tag = "grupo-inventario",
+            SelectsOnInvoked = false,
+            Icon = new FontIcon { Glyph = "\uE8A5" }
+        };
+        _itemInventarioGrupo.Tapped += (_, args) =>
+        {
+            AlternarInventario();
+            args.Handled = true;
+        };
+        menu.Insert(indice, _itemInventarioGrupo);
+    }
+
+    private void AlternarInventario()
+    {
+        _inventarioExpandido = !_inventarioExpandido;
+        AplicarExpansionInventario();
+    }
+
+    private void AplicarExpansionInventario()
+    {
+        var visibilidad = _inventarioExpandido ? Visibility.Visible : Visibility.Collapsed;
+        foreach (var hijo in _hijosInventarioVisibles)
+        {
+            if (hijo is UIElement ui)
+            {
+                ui.Visibility = visibilidad;
+            }
+        }
+
+        if (_chevronInventario is not null)
+        {
+            _chevronInventario.Glyph = _inventarioExpandido ? "\uE70E" : "\uE70D";
+        }
+    }
+
+    private static bool EsItemBloqueInventario(object elemento)
+    {
+        if (elemento is NavigationViewItemHeader encabezado)
+        {
+            if (encabezado.Content is string texto &&
+                texto.Equals("Áreas operativas", StringComparison.CurrentCultureIgnoreCase))
+            {
+                return true;
+            }
+
+            return encabezado.Tag is string etiqueta &&
+                   etiqueta.StartsWith(AreasOperativas.PrefijoCategoria, StringComparison.OrdinalIgnoreCase);
+        }
+
+        return elemento is NavigationViewItem { Tag: string tag } &&
+               (tag is "catalogo" or "registro" or "caducidad" ||
+                tag.StartsWith(AreasOperativas.PrefijoEtiqueta, StringComparison.OrdinalIgnoreCase) ||
+                tag is "clinica" or "oficina" or "limpieza" ||
+                tag == AreasOperativas.EtiquetaSinArea);
+    }
 
     private static NavigationViewItem CrearItemArea(string nombre, string etiqueta, string glifo) =>
         new()
         {
             Content = nombre,
             Tag = etiqueta,
-            Icon = new FontIcon { Glyph = glifo }
+            Icon = new FontIcon { Glyph = GlifosWinUi.Caracter(glifo) }
         };
+
+    private void ExpandirInventario()
+    {
+        if (_inventarioExpandido)
+        {
+            return;
+        }
+
+        _inventarioExpandido = true;
+        AplicarExpansionInventario();
+    }
 
     private async Task SeleccionarAsync(string etiqueta)
     {
@@ -224,6 +461,8 @@ public sealed partial class MainWindow : Window
             {
                 continue;
             }
+
+            ExpandirInventario();
 
             if (Equals(NavView.SelectedItem, elemento))
             {
@@ -431,11 +670,20 @@ public sealed partial class MainWindow : Window
         return ficha is Guid id ? new CaducidadNavegacion(id) : null;
     }
 
+    private static VistaLecturaInventario? VistaDe(string etiqueta) => etiqueta switch
+    {
+        "catalogo" => VistaLecturaInventario.Inventario,
+        "caducidad" => VistaLecturaInventario.Vencimientos,
+        "registro" => VistaLecturaInventario.Registro,
+        "historial-precios" => VistaLecturaInventario.Precios,
+        _ => null
+    };
+
     private void Navegar(string etiqueta)
     {
-        if (etiqueta == "catalogo")
+        if (VistaDe(etiqueta) is VistaLecturaInventario vista)
         {
-            InventarioNube.Iniciar(App.Instance.Repositorio);
+            InventarioNube.Iniciar(App.Instance.Repositorio, vista);
         }
 
         ModulosNube.AbrirMenu(etiqueta);
@@ -450,20 +698,36 @@ public sealed partial class MainWindow : Window
             case "caducidad":
                 NavFrame.Navigate(typeof(CaducidadPage), ConsumirNavegacionCaducidad());
                 break;
-            case "registro":
+            case "registro": 
                 NavFrame.Navigate(typeof(RegistroPage), ConsumirFichaPendiente());
                 break;
             case "historial-precios":
                 NavFrame.Navigate(typeof(HistorialPreciosPage), ConsumirFichaPendiente());
                 break;
             case "orden-compra":
+                ModulosNube.AbrirMenu("proveedores");
                 NavFrame.Navigate(typeof(OrdenCompraPage));
+                break;
+            case "orden-servicio":
+                ModulosNube.AbrirMenu("orden-servicio");
+                ModulosNube.AbrirMenu("proveedores");
+                NavFrame.Navigate(typeof(OrdenServicioPage));
                 break;
             case "proveedores":
                 NavFrame.Navigate(typeof(ProveedoresPage));
                 break;
             case "notificaciones":
                 NavFrame.Navigate(typeof(NotificacionesPage));
+                break;
+            case "merma":
+                NavFrame.Navigate(typeof(MermaPage));
+                break;
+            case "pronostico":
+                ModulosNube.AbrirMenu("registro");
+                NavFrame.Navigate(typeof(PronosticoPage));
+                break;
+            case "mantenimiento":
+                NavFrame.Navigate(typeof(MantenimientoPage));
                 break;
             case "rh-colaboradores":
                 NavFrame.Navigate(typeof(RhColaboradoresPage));
@@ -550,11 +814,25 @@ public sealed partial class MainWindow : Window
 
         if (args.SelectedItem is NavigationViewItem item && item.Tag is string etiqueta)
         {
+            if (etiqueta is "grupo-inventario")
+            {
+                // El tap del ítem ya alterna; aquí solo evitamos navegar.
+                _navegandoInterno = true;
+                NavView.SelectedItem = _navegacionAnterior;
+                _navegandoInterno = false;
+                return;
+            }
+
+            if (etiqueta.StartsWith(AreasOperativas.PrefijoCategoria, StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
             if (etiqueta == AreasOperativas.EtiquetaSinArea ||
                 etiqueta.StartsWith(AreasOperativas.PrefijoEtiqueta, StringComparison.OrdinalIgnoreCase) ||
                 etiqueta is "clinica" or "oficina" or "limpieza")
             {
-                InventarioNube.Iniciar(App.Instance.Repositorio);
+                InventarioNube.Iniciar(App.Instance.Repositorio, VistaLecturaInventario.Area);
                 NavFrame.Navigate(
                     typeof(AreaPage),
                     new AreaNavegacion(AreasOperativas.IdDesdeEtiqueta(etiqueta), ConsumirFichaPendiente()));
@@ -582,7 +860,7 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        if (_indiceTour >= TourTrabajadorNuevo.Pasos.Count - 1)
+        if (_indiceTour >= _pasosTour.Count - 1)
         {
             TerminarTour();
             return;
@@ -616,7 +894,7 @@ public sealed partial class MainWindow : Window
 
     private async Task MostrarPasoTourAsync()
     {
-        if (!_tourEnCurso || _indiceTour < 0 || _indiceTour >= TourTrabajadorNuevo.Pasos.Count)
+        if (!_tourEnCurso || _indiceTour < 0 || _indiceTour >= _pasosTour.Count)
         {
             TerminarTour();
             return;
@@ -624,7 +902,7 @@ public sealed partial class MainWindow : Window
 
         var secuencia = ++_secuenciaTour;
         var indice = _indiceTour;
-        var paso = TourTrabajadorNuevo.Pasos[indice];
+        var paso = _pasosTour[indice];
         _avanzandoTour = true;
         try
         {
@@ -637,6 +915,7 @@ public sealed partial class MainWindow : Window
             TipTour.Target = null;
 
             NavView.IsPaneOpen = true;
+            ExpandirInventario();
             if (paso.ExpandirDashboards)
             {
                 ItemDashboards.IsExpanded = true;
@@ -681,7 +960,7 @@ public sealed partial class MainWindow : Window
             TipTour.Title = paso.Titulo;
             TipTour.Subtitle = paso.Texto;
             TipTour.PreferredPlacement = ColocacionTour(paso, objetivo);
-            TipTour.ActionButtonContent = indice >= TourTrabajadorNuevo.Pasos.Count - 1
+            TipTour.ActionButtonContent = indice >= _pasosTour.Count - 1
                 ? "Terminar"
                 : "Siguiente";
             TipTour.CloseButtonContent = "Salir";

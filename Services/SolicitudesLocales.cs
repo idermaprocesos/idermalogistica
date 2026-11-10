@@ -66,6 +66,7 @@ internal static class SolicitudesLocales
         Urgente = s.Urgente,
         Origen = s.Origen,
         Estado = s.Estado,
+        CantidadAcordada = s.CantidadAcordada,
         MotivoDenegacion = s.MotivoDenegacion,
         FechaRespuesta = s.FechaRespuesta,
         Items = s.Items.Select(i => new LineaSolicitudClinica
@@ -73,7 +74,8 @@ internal static class SolicitudesLocales
             Codigo = i.Codigo,
             Area = i.Area,
             Nombre = i.Nombre,
-            Cantidad = i.Cantidad
+            Cantidad = i.Cantidad,
+            CantidadRespuesta = i.CantidadRespuesta
         }).ToList()
     };
 

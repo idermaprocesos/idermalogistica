@@ -11,7 +11,14 @@ public sealed class AreaDefinicion
     public string Prefijo { get; set; } = "GEN";
     public string Glifo { get; set; } = "\uE8F1";
     public AreaOperativa Plantilla { get; set; } = AreaOperativa.Clinica;
+    public Guid? CategoriaId { get; set; }
     public int Orden { get; set; }
+}
+
+public sealed class AreasOperativasArchivo
+{
+    public List<CategoriaMenuDefinicion> Categorias { get; set; } = [];
+    public List<AreaDefinicion> Areas { get; set; } = [];
 }
 
 public sealed class AreaIdJsonConverter : JsonConverter<Guid?>

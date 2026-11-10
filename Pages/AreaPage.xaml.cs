@@ -1,17 +1,14 @@
 using System.Collections.ObjectModel;
-using System.Runtime.InteropServices.WindowsRuntime;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
-using Microsoft.UI.Xaml.Media.Imaging;
 using Microsoft.UI.Xaml.Navigation;
 using IdermaFichas.Helpers;
 using IdermaFichas.Models;
 using IdermaFichas.Services;
-using Windows.Storage.Pickers;
 
 namespace IdermaFichas.Pages;
 
@@ -30,9 +27,9 @@ public sealed partial class AreaPage : Page, IEdicionProducto, IVistaInventario
     private string _huellaOriginal = string.Empty;
     private string _huellaVigilada = string.Empty;
     private bool _actualizandoLista;
-    private bool _actualizandoArea;
+    private bool _usarAreaAlGuardar;
+    private Guid? _areaAlGuardar;
     private bool _alertaSuciaVisible;
-    private bool _quitarImagen;
     private readonly DispatcherTimer _relojSucio = new() { Interval = TimeSpan.FromMilliseconds(700) };
     private readonly DispatcherTimer _relojBusqueda = new() { Interval = TimeSpan.FromMilliseconds(180) };
     private readonly DispatcherTimer _relojGuardadoFondo = new() { Interval = TimeSpan.FromSeconds(15) };
@@ -44,12 +41,39 @@ public sealed partial class AreaPage : Page, IEdicionProducto, IVistaInventario
     private bool _actualizandoHistorialProveedor;
     private bool _actualizandoCanalDato;
     private readonly HashSet<UIElement> _ruedaProtegida = [];
-    private readonly ObservableCollection<CaracteristicaProducto> _caracteristicas = [];
     private readonly ObservableCollection<PartidaInventario> _partidas = [];
+    private int _cargaFicha;
+    private int _suspenderRecargaEditor;
+    private bool _ajustandoPrecio;
+    private bool _precioEditado;
+    private double? _precioAlAbrir;
+    private string _monedaAlAbrir = MonedaPrecio.Soles;
 
     public AreaPage()
     {
         InitializeComponent();
+        _ajustandoPrecio = true;
+        ComboMonedaPrecio.ItemsSource = new[]
+        {
+            MonedaPrecio.Etiqueta(MonedaPrecio.Soles),
+            MonedaPrecio.Etiqueta(MonedaPrecio.Dolares)
+        };
+        ComboMonedaPrecio.SelectedIndex = 0;
+        _ajustandoPrecio = false;
+        CajaPrecio.TextChanged += (_, _) =>
+        {
+            if (!_ajustandoPrecio)
+            {
+                _precioEditado = true;
+            }
+        };
+        ComboMonedaPrecio.SelectionChanged += (_, _) =>
+        {
+            if (!_ajustandoPrecio)
+            {
+                _precioEditado = true;
+            }
+        };
         _relojSucio.Tick += (_, _) => ActualizarAlertaCambios();
         _relojGuardadoFondo.Tick += (_, _) => GuardarEnFondo();
         _relojBusqueda.Tick += (_, _) =>
@@ -98,39 +122,24 @@ public sealed partial class AreaPage : Page, IEdicionProducto, IVistaInventario
         DescripcionArea.Text = Catalogos.Descripcion(_area);
         ComboOrden.ItemsSource = OrdenFichas.Opciones.Select(o => o.Texto).ToList();
         ComboOrden.SelectedIndex = OrdenFichas.IndicePredeterminado;
-
-        ComboCategoria.ItemsSource = OpcionesCombo(Catalogos.CampoCategorias, string.Empty);
-        ComboUnidad.ItemsSource = OpcionesCombo(Catalogos.CampoUnidades, string.Empty);
-        ComboEstadoFisico.ItemsSource = OpcionesCombo(Catalogos.CampoEstados, string.Empty);
-        ComboPresentacion.ItemsSource = OpcionesCombo(Catalogos.CampoPresentaciones, string.Empty);
-        ComboVidaUtil.ItemsSource = OpcionesCombo(Catalogos.CampoVidasUtil, string.Empty);
-        ComboPais.ItemsSource = OpcionesCombo(Catalogos.CampoPaises, string.Empty);
-        ComboOrigen.ItemsSource = OpcionesCombo(Catalogos.CampoTiposOrigen, string.Empty);
-        ComboProcedimiento.ItemsSource = OpcionesCombo(Catalogos.CampoProcedimientos, string.Empty);
-        ComboRiesgo.ItemsSource = OpcionesCombo(Catalogos.CampoRiesgos, string.Empty);
-        ComboTemperatura.ItemsSource = OpcionesCombo(Catalogos.CampoTemperaturas, string.Empty);
-        ComboPeligrosidad.ItemsSource = OpcionesCombo(Catalogos.CampoPeligrosidad, string.Empty);
+        RellenarDesplegables();
         ComboCanalDato1.ItemsSource = CanalDatoProveedor.Opciones;
         ComboCanalDato2.ItemsSource = CanalDatoProveedor.Opciones;
 
-        PivotArea.Header = Catalogos.Titulo(_area);
         var plantilla = _area is null ? (AreaOperativa?)null : AreasOperativas.Plantilla(_area);
         PanelClinica.Visibility = VisibleSi(plantilla == AreaOperativa.Clinica);
         PanelOficina.Visibility = VisibleSi(plantilla == AreaOperativa.Oficina);
         PanelLimpieza.Visibility = VisibleSi(plantilla == AreaOperativa.Limpieza);
 
-        CargarOpcionesArea();
         CargarHistorialProveedor();
 
         ListaFichas.ItemsSource = FichasVisibles;
-        ListaCaracteristicas.ItemsSource = _caracteristicas;
         ListaPartidas.ItemsSource = _partidas;
-        RefrescarLista(_fichaInicial, recargarEditor: true);
+        RefrescarLista(_fichaInicial, recargarEditor: true, cargarNube: _fichaInicial is not null);
     }
 
     public void AplicarCambioInventario()
     {
-        CargarOpcionesArea();
         var id = _enEdicion?.Id;
         var sigue = id is Guid fichaId && App.Instance.Repositorio.Obtener(fichaId) is not null;
         if (_enEdicion is not null && !sigue && !HayCambiosPendientes)
@@ -141,22 +150,29 @@ public sealed partial class AreaPage : Page, IEdicionProducto, IVistaInventario
             return;
         }
 
-        RefrescarLista(id, recargarEditor: sigue && !HayCambiosPendientes);
+        RefrescarLista(id, recargarEditor: _suspenderRecargaEditor == 0 && sigue && !HayCambiosPendientes);
         AnimacionLista.Revelar(ListaFichas);
+    }
+
+    public void RecargarDesplegables()
+    {
+        RellenarDesplegables();
+        SeleccionarValoresCatalogo();
+    }
+
+    private void RellenarDesplegables()
+    {
+        ComboCategoria.ItemsSource = OpcionesCombo(Catalogos.CampoCategorias, ValorCatalogo(ComboCategoria) ?? string.Empty);
+        ComboUnidad.ItemsSource = OpcionesCombo(Catalogos.CampoUnidades, ValorCatalogo(ComboUnidad) ?? string.Empty);
+        ComboEstadoFisico.ItemsSource = OpcionesCombo(Catalogos.CampoEstados, ValorCatalogo(ComboEstadoFisico) ?? string.Empty);
+        ComboVidaUtil.ItemsSource = OpcionesCombo(Catalogos.CampoVidasUtil, ValorCatalogo(ComboVidaUtil) ?? string.Empty);
+        ComboPais.ItemsSource = OpcionesCombo(Catalogos.CampoPaises, ValorCatalogo(ComboPais) ?? string.Empty);
+        ComboOrigen.ItemsSource = OpcionesCombo(Catalogos.CampoTiposOrigen, ValorCatalogo(ComboOrigen) ?? string.Empty);
+        ComboPeligrosidad.ItemsSource = OpcionesCombo(Catalogos.CampoPeligrosidad, ValorCatalogo(ComboPeligrosidad) ?? string.Empty);
     }
 
     private static Visibility VisibleSi(bool condicion) =>
         condicion ? Visibility.Visible : Visibility.Collapsed;
-
-    private void CargarOpcionesArea()
-    {
-        _actualizandoArea = true;
-        ComboAreaProducto.ItemsSource = CrearOpcionesArea();
-        ComboAreaSeleccionadas.ItemsSource = CrearOpcionesArea();
-        SeleccionarEnCombo(ComboAreaProducto, _area);
-        SeleccionarEnCombo(ComboAreaSeleccionadas, _area);
-        _actualizandoArea = false;
-    }
 
     private static List<OpcionAreaVista> CrearOpcionesArea()
     {
@@ -168,76 +184,158 @@ public sealed partial class AreaPage : Page, IEdicionProducto, IVistaInventario
         return opciones;
     }
 
-    private static void SeleccionarEnCombo(ComboBox combo, Guid? areaId)
+    private Guid? AreaElegida()
     {
-        if (combo.ItemsSource is not IEnumerable<OpcionAreaVista> opciones)
+        if (_usarAreaAlGuardar)
+        {
+            return _areaAlGuardar;
+        }
+
+        return _enEdicion?.Area ?? _area;
+    }
+
+    private void MenuMoverArea_Opening(object sender, object e)
+    {
+        if (sender is not MenuFlyout menu)
         {
             return;
         }
 
-        combo.SelectedItem = opciones.FirstOrDefault(o => o.Id == areaId) ?? opciones.FirstOrDefault();
+        menu.Items.Clear();
+        foreach (var opcion in CrearOpcionesArea())
+        {
+            if (Equals(opcion.Id, _area))
+            {
+                continue;
+            }
+
+            var destino = opcion.Id;
+            var item = new MenuFlyoutItem { Text = opcion.Nombre };
+            item.Click += (_, _) => MoverProductos(ProductosElegidos(), destino);
+            menu.Items.Add(item);
+        }
     }
 
-    private Guid? AreaElegida() =>
-        ComboAreaProducto.SelectedItem is OpcionAreaVista opcion
-            ? opcion.Id
-            : _enEdicion?.Area ?? _area;
-
-    private void ComboAreaProducto_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    private List<FichaTecnica> ProductosElegidos()
     {
-        if (_actualizandoArea || _enEdicion is null)
+        var marcadas = FichasVisibles.Where(f => f.EstaMarcada).Select(f => f.Ficha).ToList();
+        if (marcadas.Count > 0)
         {
-            return;
+            return marcadas;
         }
 
-        var destino = AreaElegida();
-        DispatcherQueue.TryEnqueue(() => AplicarCambioAreaProducto(destino));
+        if (_enEdicion is not null)
+        {
+            return [_enEdicion];
+        }
+
+        if (ListaFichas.SelectedItem is FichaListaItem item)
+        {
+            return [item.Ficha];
+        }
+
+        return [];
     }
 
-    private void AplicarCambioAreaProducto(Guid? destino)
+    private void MoverProductos(List<FichaTecnica> productos, Guid? destino)
     {
         try
         {
-            if (_enEdicion is null || Equals(_enEdicion.Area, destino))
+            if (productos.Count == 0)
             {
+                Mostrar("Abra o marque un producto para cambiarlo de área.", InfoBarSeverity.Warning);
                 return;
             }
 
-            var anterior = _enEdicion.Area;
-            var codigoAnterior = _enEdicion.Codigo;
-            var codigoNuevo = App.Instance.Repositorio.PrepararMovimientoDeArea(_enEdicion, destino);
-            if (CajaCodigo is not null)
+            var aMover = productos.Where(f => !Equals(f.Area, destino)).ToList();
+            if (aMover.Count == 0)
             {
-                CajaCodigo.Text = codigoNuevo;
-            }
-
-            if (Equals(destino, _area))
-            {
-                ActualizarAlertaCambios();
+                Mostrar("El producto ya está en esa área.", InfoBarSeverity.Warning);
                 return;
             }
 
-            if (GuardarFichaActual(silencioso: false))
+            var repo = App.Instance.Repositorio;
+            if (aMover.Count == 1 && _enEdicion is not null && aMover[0].Id == _enEdicion.Id)
             {
+                var areaAnterior = _enEdicion.Area;
+                var codigoAnterior = _enEdicion.Codigo;
+                var codigo = repo.PrepararMovimientoDeArea(_enEdicion, destino);
+                if (CajaCodigo is not null)
+                {
+                    CajaCodigo.Text = codigo;
+                }
+
+                _areaAlGuardar = destino;
+                _usarAreaAlGuardar = true;
+                bool guardada;
+                try
+                {
+                    guardada = GuardarFichaActual(silencioso: true);
+                }
+                finally
+                {
+                    _usarAreaAlGuardar = false;
+                }
+
+                if (!guardada)
+                {
+                    _enEdicion.Area = areaAnterior;
+                    _enEdicion.Codigo = codigoAnterior;
+                    if (CajaCodigo is not null)
+                    {
+                        CajaCodigo.Text = codigoAnterior;
+                    }
+
+                    return;
+                }
+
+                Mostrar($"El producto se movió a {Catalogos.Titulo(destino)} con código {codigo}.", InfoBarSeverity.Success);
                 return;
             }
 
-            if (_enEdicion is null)
+            var prefijo = Catalogos.PrefijoCodigo(destino);
+            foreach (var ficha in aMover)
             {
-                return;
+                var viva = repo.Obtener(ficha.Id) ?? ficha;
+                var codigo = repo.PrepararMovimientoDeArea(viva, destino);
+                if (ReferenceEquals(viva, ficha))
+                {
+                    ficha.Codigo = codigo;
+                }
+                else
+                {
+                    ficha.Area = destino;
+                    ficha.Codigo = codigo;
+                    viva.Codigo = codigo;
+                }
+
+                _marcadas.Remove(ficha.Id);
             }
 
-            _enEdicion.Area = anterior;
-            _enEdicion.Codigo = codigoAnterior;
-            if (CajaCodigo is not null)
+            repo.GuardarFichas(aMover.Select(f => repo.Obtener(f.Id) ?? f));
+            var primero = repo.Obtener(aMover[0].Id) ?? aMover[0];
+            if (_enEdicion is not null && aMover.Any(f => f.Id == _enEdicion.Id))
             {
-                CajaCodigo.Text = codigoAnterior;
+                _enEdicion.Area = primero.Area;
+                _enEdicion.Codigo = primero.Codigo;
+                if (CajaCodigo is not null)
+                {
+                    CajaCodigo.Text = primero.Codigo;
+                }
             }
 
-            _actualizandoArea = true;
-            SeleccionarEnCombo(ComboAreaProducto, anterior);
-            _actualizandoArea = false;
-            ActualizarAlertaCambios();
+            RefrescarLista(Equals(primero.Area, _area) ? primero.Id : null);
+            if (_enEdicion is not null && aMover.Any(f => f.Id == _enEdicion.Id) && !Equals(primero.Area, _area))
+            {
+                OcultarFormulario();
+                App.Instance.MainAppWindow?.IrAArea(destino, primero.Id);
+            }
+
+            Mostrar(
+                aMover.Count == 1
+                    ? $"El producto se movió a {Catalogos.Titulo(destino)} con código {primero.Codigo}."
+                    : $"{aMover.Count} productos se movieron a {Catalogos.Titulo(destino)} con códigos nuevos {prefijo}_…",
+                InfoBarSeverity.Success);
         }
         catch (Exception ex)
         {
@@ -245,58 +343,7 @@ public sealed partial class AreaPage : Page, IEdicionProducto, IVistaInventario
         }
     }
 
-    private void MoverSeleccionadas_Click(object sender, RoutedEventArgs e)
-    {
-        var destino = ComboAreaSeleccionadas.SelectedItem is OpcionAreaVista opcion ? opcion.Id : _area;
-        var seleccionadas = FichasVisibles.Where(f => f.EstaMarcada).Select(f => f.Ficha).ToList();
-        if (seleccionadas.Count == 0)
-        {
-            Mostrar("Marque al menos un producto para cambiarlo de área.", InfoBarSeverity.Warning);
-            return;
-        }
-
-        if (Equals(destino, _area) || (_area is null && destino is null))
-        {
-            Mostrar("Elija un área distinta a la actual.", InfoBarSeverity.Warning);
-            return;
-        }
-
-        var repo = App.Instance.Repositorio;
-        var prefijo = Catalogos.PrefijoCodigo(destino);
-        foreach (var ficha in seleccionadas)
-        {
-            repo.PrepararMovimientoDeArea(ficha, destino);
-            _marcadas.Remove(ficha.Id);
-        }
-
-        repo.GuardarFichas(seleccionadas);
-
-        FlyoutMoverArea.Hide();
-        if (_enEdicion is not null && seleccionadas.Any(f => f.Id == _enEdicion.Id))
-        {
-            var movida = seleccionadas.First(f => f.Id == _enEdicion.Id);
-            _enEdicion.Area = movida.Area;
-            _enEdicion.Codigo = movida.Codigo;
-            if (CajaCodigo is not null)
-            {
-                CajaCodigo.Text = movida.Codigo;
-            }
-        }
-
-        RefrescarLista(_enEdicion?.Id);
-        if (_enEdicion is not null && seleccionadas.Any(f => f.Id == _enEdicion.Id) && !Equals(_enEdicion.Area, _area))
-        {
-            OcultarFormulario();
-        }
-
-        Mostrar(
-            seleccionadas.Count == 1
-                ? $"El producto se movió a {Catalogos.Titulo(destino)} con código {seleccionadas[0].Codigo}."
-                : $"{seleccionadas.Count} productos se movieron a {Catalogos.Titulo(destino)} con códigos nuevos {prefijo}_…",
-            InfoBarSeverity.Success);
-    }
-
-    private void RefrescarLista(Guid? seleccionar = null, bool recargarEditor = false)
+    private void RefrescarLista(Guid? seleccionar = null, bool recargarEditor = false, bool cargarNube = false)
     {
         var filtro = CajaBusqueda.Text?.Trim() ?? string.Empty;
         var indiceOrden = ComboOrden.SelectedIndex;
@@ -329,7 +376,7 @@ public sealed partial class AreaPage : Page, IEdicionProducto, IVistaInventario
                 _actualizandoLista = false;
                 if (_enEdicion is null || _enEdicion.Id != id || recargarEditor)
                 {
-                    MostrarFicha(coincide.Ficha);
+                    MostrarFicha(coincide.Ficha, cargarNube: cargarNube);
                 }
 
                 return;
@@ -381,11 +428,11 @@ public sealed partial class AreaPage : Page, IEdicionProducto, IVistaInventario
             _actualizandoLista = true;
             ListaFichas.SelectedItem = destino;
             _actualizandoLista = false;
-            MostrarFicha(destino.Ficha);
+            MostrarFicha(destino.Ficha, cargarNube: true);
             return;
         }
 
-        MostrarFicha(item.Ficha);
+        MostrarFicha(item.Ficha, cargarNube: true);
     }
 
     private void ModoSeleccionar_Click(object sender, RoutedEventArgs e)
@@ -566,7 +613,6 @@ public sealed partial class AreaPage : Page, IEdicionProducto, IVistaInventario
         AsignarCanalEnFicha(indice, canal.Id);
         CajaDato(indice).PlaceholderText = canal.Placeholder;
         ActualizarAlertaCambios();
-        _ = AbrirCanalDatoAsync(indice, avisarSiFalta: true);
     }
 
     private static int IndiceCanal(object sender) =>
@@ -619,40 +665,6 @@ public sealed partial class AreaPage : Page, IEdicionProducto, IVistaInventario
         CajaDato(indice).Text = dato ?? string.Empty;
         CajaDato(indice).PlaceholderText = canal.Placeholder;
         AsignarCanalEnFicha(indice, canal.Id);
-    }
-
-    private async Task AbrirCanalDatoAsync(int indice, bool avisarSiFalta)
-    {
-        if (_enEdicion is null)
-        {
-            return;
-        }
-
-        SincronizarEnfoque();
-        var canal = ComboCanal(indice).SelectedItem is CanalDatoOpcion elegido
-            ? elegido.Id
-            : CanalDatoProveedor.Web;
-        var dato = CajaDato(indice).Text?.Trim() ?? string.Empty;
-        var uri = CanalDatoProveedor.Uri(canal, dato);
-        if (uri is null)
-        {
-            if (avisarSiFalta)
-            {
-                var titulo = CanalDatoProveedor.De(canal).Titulo;
-                Mostrar(
-                    titulo == "WhatsApp"
-                        ? "Indique un celular peruano de 9 dígitos (empieza en 9) en el dato."
-                        : $"Escriba un {titulo.ToLowerInvariant()} válido en el dato.",
-                    InfoBarSeverity.Warning);
-            }
-
-            return;
-        }
-
-        if (!await Windows.System.Launcher.LaunchUriAsync(uri))
-        {
-            Mostrar($"No se pudo abrir {CanalDatoProveedor.De(canal).Titulo}.", InfoBarSeverity.Error);
-        }
     }
 
     private ContactoProveedor ContactoDesdeFormulario()
@@ -753,39 +765,84 @@ public sealed partial class AreaPage : Page, IEdicionProducto, IVistaInventario
         BarraEstado.IsOpen = false;
     }
 
-    private void MostrarFicha(FichaTecnica ficha, bool esNueva = false)
+    private async void MostrarFicha(FichaTecnica ficha, bool esNueva = false, bool cargarNube = false)
     {
+        var token = cargarNube ? ++_cargaFicha : _cargaFicha;
+        if (cargarNube && !esNueva)
+        {
+            _suspenderRecargaEditor++;
+            try
+            {
+                var completa = await InventarioNube.CargarCompletaAsync(ficha.Id);
+                if (token != _cargaFicha)
+                {
+                    return;
+                }
+
+                if (completa is not null)
+                {
+                    ficha = completa;
+                }
+            }
+            catch (Exception ex)
+            {
+                Mostrar($"No se pudo abrir la ficha completa: {ex.Message}", InfoBarSeverity.Error);
+            }
+            finally
+            {
+                _suspenderRecargaEditor--;
+            }
+        }
+
+        if (_suspenderRecargaEditor > 0 && !cargarNube)
+        {
+            return;
+        }
+
         if (!esNueva && App.Instance.Repositorio.Obtener(ficha.Id) is { } actual)
         {
             ficha = actual;
         }
 
-        _enEdicion = ficha.Clonar();
-        _quitarImagen = false;
+        try
+        {
+            _enEdicion = ficha.Clonar();
+        }
+        catch (Exception ex)
+        {
+            Mostrar($"No se pudo abrir el producto: {ex.Message}", InfoBarSeverity.Error);
+            return;
+        }
+
+        PrepararFechasDeCalendario(_enEdicion);
         if (esNueva)
         {
             _enEdicion.Id = ficha.Id;
             _enEdicion.Codigo = ficha.Codigo;
             _enEdicion.Area = ficha.Area;
-            _enEdicion.FechaAdquisicion = ficha.FechaAdquisicion;
+            _enEdicion.FechaAdquisicion = FechaCalendario.ParaPicker(ficha.FechaAdquisicion);
         }
 
         Formulario.DataContext = _enEdicion;
         CargarHistorialProveedor();
         MostrarContactosProveedor();
-        CargarCaracteristicasEnEditor();
         CargarPartidasEnEditor();
+        try
+        {
+            CargarPrecioEnEditor(_enEdicion.Id);
+        }
+        catch (Exception ex)
+        {
+            Mostrar($"No se pudo mostrar el precio: {ex.Message}", InfoBarSeverity.Warning);
+        }
+
         RecordarInventarioAbierto(_enEdicion);
-        _actualizandoArea = true;
-        SeleccionarEnCombo(ComboAreaProducto, _enEdicion.Area);
-        _actualizandoArea = false;
         FijarHuellaOriginal();
         _alertaSuciaVisible = false;
         _relojGuardadoFondo.Stop();
         EstadoVacio.Visibility = Visibility.Collapsed;
         ContenedorFormulario.Visibility = Visibility.Visible;
         ProtegerControlesDeRueda(Formulario);
-        _ = ActualizarPreviewImagenAsync();
         DispatcherQueue.TryEnqueue(SeleccionarValoresCatalogo);
         DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, FijarHuellaOriginal);
     }
@@ -797,105 +854,18 @@ public sealed partial class AreaPage : Page, IEdicionProducto, IVistaInventario
         _alertaSuciaVisible = false;
         _relojGuardadoFondo.Stop();
         Formulario.DataContext = null;
-        _caracteristicas.Clear();
         _partidas.Clear();
+        _precioEditado = false;
+        _precioAlAbrir = null;
+        _monedaAlAbrir = MonedaPrecio.Soles;
         EstadoVacio.Visibility = Visibility.Visible;
         ContenedorFormulario.Visibility = Visibility.Collapsed;
-        LimpiarPreviewImagen();
-    }
-
-    private async void AdjuntarImagen_Click(object sender, RoutedEventArgs e)
-    {
-        if (_enEdicion is null)
-        {
-            return;
-        }
-
-        var selector = new FileOpenPicker();
-        VentanaHelper.AsociarSelector(selector);
-        selector.SuggestedStartLocation = PickerLocationId.PicturesLibrary;
-        selector.FileTypeFilter.Add(".jpg");
-        selector.FileTypeFilter.Add(".jpeg");
-        selector.FileTypeFilter.Add(".png");
-        selector.FileTypeFilter.Add(".bmp");
-        selector.FileTypeFilter.Add(".webp");
-
-        var archivo = await selector.PickSingleFileAsync();
-        if (archivo is null)
-        {
-            return;
-        }
-
-        try
-        {
-            await using var origen = await archivo.OpenStreamForReadAsync();
-            _enEdicion.RutaImagen = await ImagenFichaService.GuardarDesdeAsync(
-                _enEdicion.Id,
-                origen,
-                Path.GetExtension(archivo.Name));
-            _quitarImagen = false;
-            await ActualizarPreviewImagenAsync();
-            ActualizarAlertaCambios();
-            Mostrar("Imagen adjunta. Pulse Guardar ahora para conservarla en el catálogo.", InfoBarSeverity.Warning);
-        }
-        catch (Exception ex)
-        {
-            Mostrar($"No se pudo adjuntar la imagen: {ex.Message}", InfoBarSeverity.Error);
-        }
-    }
-
-    private void QuitarImagen_Click(object sender, RoutedEventArgs e)
-    {
-        if (_enEdicion is null)
-        {
-            return;
-        }
-
-        ImagenFichaService.DescartarPendiente(_enEdicion.Id);
-        _enEdicion.RutaImagen = string.Empty;
-        _quitarImagen = true;
-        LimpiarPreviewImagen();
-        ActualizarAlertaCambios();
-        Mostrar("Se quitó la imagen. Pulse Guardar ahora para confirmar el cambio.", InfoBarSeverity.Warning);
-    }
-
-    private async Task ActualizarPreviewImagenAsync()
-    {
-        var ruta = _quitarImagen ? null : ImagenFichaService.RutaParaVista(_enEdicion);
-        if (string.IsNullOrWhiteSpace(ruta))
-        {
-            LimpiarPreviewImagen();
-            return;
-        }
-
-        try
-        {
-            await using var archivo = File.OpenRead(ruta);
-            var bitmap = new BitmapImage();
-            await bitmap.SetSourceAsync(archivo.AsRandomAccessStream());
-            ImagenProducto.Source = bitmap;
-            ImagenProducto.Visibility = Visibility.Visible;
-            TextoSinImagen.Visibility = Visibility.Collapsed;
-            BotonQuitarImagen.Visibility = Visibility.Visible;
-        }
-        catch
-        {
-            LimpiarPreviewImagen();
-        }
-    }
-
-    private void LimpiarPreviewImagen()
-    {
-        ImagenProducto.Source = null;
-        ImagenProducto.Visibility = Visibility.Collapsed;
-        TextoSinImagen.Visibility = Visibility.Visible;
-        BotonQuitarImagen.Visibility = Visibility.Collapsed;
     }
 
     private void Guardar_Click(object sender, RoutedEventArgs e) => GuardarFichaActual(silencioso: false);
 
     public bool HayCambiosPendientes =>
-        _enEdicion is not null && Huella(_enEdicion) != _huellaOriginal;
+        _enEdicion is not null && (Huella(_enEdicion) != _huellaOriginal || PrecioCambio());
 
     public bool AutoguardarSiEsPosible()
     {
@@ -940,11 +910,6 @@ public sealed partial class AreaPage : Page, IEdicionProducto, IVistaInventario
 
         if (resultado == ContentDialogResult.Secondary)
         {
-            if (_enEdicion is not null)
-            {
-                ImagenFichaService.DescartarPendiente(_enEdicion.Id);
-            }
-
             return true;
         }
 
@@ -1004,12 +969,8 @@ public sealed partial class AreaPage : Page, IEdicionProducto, IVistaInventario
             return false;
         }
 
-        var conservarImagen = !_quitarImagen;
-        ImagenFichaService.Confirmar(_enEdicion.Id, conservarImagen);
-        _enEdicion.RutaImagen = ImagenFichaService.RutaEfectiva(_enEdicion) ?? string.Empty;
-        _quitarImagen = false;
-
         App.Instance.Repositorio.GuardarFicha(_enEdicion);
+        GuardarPrecioDeFichaSiCambio();
         CargarHistorialProveedor();
         CargarPartidasEnEditor();
         RecordarInventarioAbierto(_enEdicion);
@@ -1064,9 +1025,8 @@ public sealed partial class AreaPage : Page, IEdicionProducto, IVistaInventario
             return false;
         }
 
-        ImagenFichaService.Confirmar(copia.Id, !_quitarImagen);
-        copia.RutaImagen = ImagenFichaService.RutaEfectiva(copia) ?? string.Empty;
         App.Instance.Repositorio.GuardarFicha(copia);
+        GuardarPrecioDeFichaSiCambio();
         RecordarInventarioAbierto(copia);
         _huellaOriginal = Huella(_enEdicion);
         _huellaVigilada = _huellaOriginal;
@@ -1125,7 +1085,7 @@ public sealed partial class AreaPage : Page, IEdicionProducto, IVistaInventario
 
         SincronizarEditorSinForzarControlesOcultos();
         var actual = Huella(_enEdicion);
-        var sucio = actual != _huellaOriginal;
+        var sucio = actual != _huellaOriginal || PrecioCambio();
         if (sucio)
         {
             if (actual != _huellaVigilada)
@@ -1218,6 +1178,95 @@ public sealed partial class AreaPage : Page, IEdicionProducto, IVistaInventario
         _huellaVigilada = _huellaOriginal;
     }
 
+    private void CargarPrecioEnEditor(Guid fichaId)
+    {
+        var ultimo = App.Instance.HistorialPrecios.Ultimo(fichaId);
+        var monto = ultimo is not null && double.IsFinite(ultimo.Monto) && ultimo.Monto >= 0
+            ? ultimo.Monto
+            : (double?)null;
+        _ajustandoPrecio = true;
+        _precioEditado = false;
+        _precioAlAbrir = monto;
+        _monedaAlAbrir = MonedaPrecio.Normalizar(ultimo?.Moneda);
+        CajaPrecio.Text = monto is double valor
+            ? valor.ToString("0.##", System.Globalization.CultureInfo.CurrentCulture)
+            : string.Empty;
+        if (ComboMonedaPrecio.Items.Count > 0)
+        {
+            ComboMonedaPrecio.SelectedIndex = MonedaPrecio.EsDolar(_monedaAlAbrir) ? 1 : 0;
+        }
+
+        _ajustandoPrecio = false;
+    }
+
+    private bool PrecioCambio()
+    {
+        if (_enEdicion is null || !_precioEditado)
+        {
+            return false;
+        }
+
+        var monto = MontoPrecioFormulario();
+        if (monto is null)
+        {
+            return false;
+        }
+
+        if (_precioAlAbrir is null)
+        {
+            return true;
+        }
+
+        return Math.Abs(monto.Value - _precioAlAbrir.Value) > 0.0001
+            || MonedaPrecioFormulario() != _monedaAlAbrir;
+    }
+
+    private double? MontoPrecioFormulario()
+    {
+        var texto = (CajaPrecio.Text ?? string.Empty).Trim();
+        if (texto.Length == 0)
+        {
+            return null;
+        }
+
+        if (!double.TryParse(texto, System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.CurrentCulture, out var monto)
+            && !double.TryParse(texto, System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out monto))
+        {
+            return null;
+        }
+
+        return double.IsFinite(monto) && monto >= 0 ? monto : null;
+    }
+
+    private string MonedaPrecioFormulario() =>
+        ComboMonedaPrecio.SelectedIndex == 1 ? MonedaPrecio.Dolares : MonedaPrecio.Soles;
+
+    private void GuardarPrecioDeFichaSiCambio()
+    {
+        if (_enEdicion is null || !PrecioCambio())
+        {
+            return;
+        }
+
+        var monto = MontoPrecioFormulario();
+        if (monto is null)
+        {
+            return;
+        }
+
+        var moneda = MonedaPrecioFormulario();
+        App.Instance.HistorialPrecios.GuardarPrecio(new PrecioProducto
+        {
+            FichaId = _enEdicion.Id,
+            Fecha = DateTimeOffset.Now,
+            Monto = monto.Value,
+            Moneda = moneda
+        });
+        _precioAlAbrir = monto;
+        _monedaAlAbrir = moneda;
+        _precioEditado = false;
+    }
+
     private void CopiarCanalDatoAlModelo()
     {
         if (_enEdicion is null || !ControlListoParaLeer(CajaProveedor) || !EstaEnPestañaVisible(CajaProveedor))
@@ -1275,7 +1324,6 @@ public sealed partial class AreaPage : Page, IEdicionProducto, IVistaInventario
 
     private void SincronizarEnfoque()
     {
-        CopiarCaracteristicasAlModelo();
         CopiarPartidasAlModelo();
         CopiarCanalDatoAlModelo();
         if (XamlRoot is null)
@@ -1297,7 +1345,6 @@ public sealed partial class AreaPage : Page, IEdicionProducto, IVistaInventario
 
     private void SincronizarEditorSinForzarControlesOcultos()
     {
-        CopiarCaracteristicasAlModelo();
         CopiarPartidasAlModelo();
         CopiarCanalDatoAlModelo();
         if (XamlRoot is not null
@@ -1409,28 +1456,18 @@ public sealed partial class AreaPage : Page, IEdicionProducto, IVistaInventario
         }
 
         var titulo = pestana.Header?.ToString();
-        if (titulo == "Identificación")
+        if (titulo == "Ficha")
         {
             yield return ComboCategoria;
             yield return ComboUnidad;
             yield return ComboEstadoFisico;
-            yield return ComboPresentacion;
-        }
-        else if (titulo == "Técnicas")
-        {
             yield return ComboVidaUtil;
+            yield return ComboPeligrosidad;
         }
         else if (titulo == "Procedencia")
         {
             yield return ComboPais;
             yield return ComboOrigen;
-        }
-        else if (ReferenceEquals(pestana, PivotArea))
-        {
-            yield return ComboProcedimiento;
-            yield return ComboRiesgo;
-            yield return ComboTemperatura;
-            yield return ComboPeligrosidad;
         }
     }
 
@@ -1497,13 +1534,9 @@ public sealed partial class AreaPage : Page, IEdicionProducto, IVistaInventario
         if (ReferenceEquals(caja, ComboCategoria)) return Catalogos.CampoCategorias;
         if (ReferenceEquals(caja, ComboUnidad)) return Catalogos.CampoUnidades;
         if (ReferenceEquals(caja, ComboEstadoFisico)) return Catalogos.CampoEstados;
-        if (ReferenceEquals(caja, ComboPresentacion)) return Catalogos.CampoPresentaciones;
         if (ReferenceEquals(caja, ComboVidaUtil)) return Catalogos.CampoVidasUtil;
         if (ReferenceEquals(caja, ComboPais)) return Catalogos.CampoPaises;
         if (ReferenceEquals(caja, ComboOrigen)) return Catalogos.CampoTiposOrigen;
-        if (ReferenceEquals(caja, ComboProcedimiento)) return Catalogos.CampoProcedimientos;
-        if (ReferenceEquals(caja, ComboRiesgo)) return Catalogos.CampoRiesgos;
-        if (ReferenceEquals(caja, ComboTemperatura)) return Catalogos.CampoTemperaturas;
         if (ReferenceEquals(caja, ComboPeligrosidad)) return Catalogos.CampoPeligrosidad;
         return null;
     }
@@ -1518,13 +1551,9 @@ public sealed partial class AreaPage : Page, IEdicionProducto, IVistaInventario
         if (ReferenceEquals(caja, ComboCategoria)) return _enEdicion.Categoria;
         if (ReferenceEquals(caja, ComboUnidad)) return _enEdicion.UnidadMedida;
         if (ReferenceEquals(caja, ComboEstadoFisico)) return _enEdicion.EstadoFisico;
-        if (ReferenceEquals(caja, ComboPresentacion)) return _enEdicion.Presentacion;
         if (ReferenceEquals(caja, ComboVidaUtil)) return _enEdicion.VidaUtil;
         if (ReferenceEquals(caja, ComboPais)) return _enEdicion.PaisOrigen;
         if (ReferenceEquals(caja, ComboOrigen)) return _enEdicion.TipoOrigen;
-        if (ReferenceEquals(caja, ComboProcedimiento)) return _enEdicion.Procedimiento;
-        if (ReferenceEquals(caja, ComboRiesgo)) return _enEdicion.RiesgoBiologico;
-        if (ReferenceEquals(caja, ComboTemperatura)) return _enEdicion.TemperaturaAlmacenamiento;
         if (ReferenceEquals(caja, ComboPeligrosidad)) return _enEdicion.Peligrosidad;
         return null;
     }
@@ -1654,30 +1683,14 @@ public sealed partial class AreaPage : Page, IEdicionProducto, IVistaInventario
         }
     }
 
-    private void CargarCaracteristicasEnEditor()
+    private static void PrepararFechasDeCalendario(FichaTecnica ficha)
     {
-        _caracteristicas.Clear();
-        if (_enEdicion is null)
+        ficha.FechaAdquisicion = FechaCalendario.ParaPicker(ficha.FechaAdquisicion);
+        ficha.FechaCaducidad = FechaCalendario.ParaPicker(ficha.FechaCaducidad);
+        foreach (var partida in ficha.Partidas ?? [])
         {
-            return;
+            partida.FechaCaducidad = FechaCalendario.ParaPicker(partida.FechaCaducidad);
         }
-
-        foreach (var item in AlmacenCaracteristicas.NormalizarLista(_enEdicion.Caracteristicas))
-        {
-            _caracteristicas.Add(item);
-        }
-
-        _enEdicion.Caracteristicas = _caracteristicas.ToList();
-    }
-
-    private void CopiarCaracteristicasAlModelo()
-    {
-        if (_enEdicion is null)
-        {
-            return;
-        }
-
-        _enEdicion.Caracteristicas = AlmacenCaracteristicas.NormalizarLista(_caracteristicas);
     }
 
     private void CargarPartidasEnEditor()
@@ -1785,36 +1798,6 @@ public sealed partial class AreaPage : Page, IEdicionProducto, IVistaInventario
         ActualizarAlertaCambios();
     }
 
-    private void AgregarCaracteristica_Click(object sender, RoutedEventArgs e)
-    {
-        if (_enEdicion is null)
-        {
-            return;
-        }
-
-        if (_caracteristicas.Count >= CaracteristicaProducto.MaximoPorProducto)
-        {
-            Mostrar($"Cada producto admite como máximo {CaracteristicaProducto.MaximoPorProducto} características.", InfoBarSeverity.Warning);
-            return;
-        }
-
-        _caracteristicas.Add(new CaracteristicaProducto());
-        CopiarCaracteristicasAlModelo();
-        ActualizarAlertaCambios();
-    }
-
-    private void QuitarCaracteristica_Click(object sender, RoutedEventArgs e)
-    {
-        if (sender is not FrameworkElement elemento || elemento.DataContext is not CaracteristicaProducto item)
-        {
-            return;
-        }
-
-        _caracteristicas.Remove(item);
-        CopiarCaracteristicasAlModelo();
-        ActualizarAlertaCambios();
-    }
-
     private void Cancelar_Click(object sender, RoutedEventArgs e)
     {
         if (ListaFichas.SelectedItem is FichaListaItem item)
@@ -1850,6 +1833,11 @@ public sealed partial class AreaPage : Page, IEdicionProducto, IVistaInventario
             DefaultButton = ContentDialogButton.Close,
             XamlRoot = XamlRoot
         };
+
+        if (await AprobacionBorradoInventario.InterceptarAsync(XamlRoot, [_enEdicion]))
+        {
+            return;
+        }
 
         if (await dialogo.ShowAsync() != ContentDialogResult.Primary)
         {
@@ -1913,6 +1901,7 @@ public sealed partial class AreaPage : Page, IEdicionProducto, IVistaInventario
     {
         try
         {
+            ficha = (await InventarioNube.CargarCompletaAsync(ficha.Id)) ?? ficha;
             var resultado = await ExcelUi.ExportarFichaAsync(ficha);
             if (resultado is null)
             {
@@ -1943,6 +1932,7 @@ public sealed partial class AreaPage : Page, IEdicionProducto, IVistaInventario
 
         try
         {
+            seleccionadas = (await InventarioNube.CargarCompletasAsync(seleccionadas)).ToList();
             var resultado = await ExcelUi.ExportarConsolidadoAsync(seleccionadas);
             if (resultado is null)
             {

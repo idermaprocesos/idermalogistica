@@ -98,7 +98,7 @@ public sealed class RegistroInventarioRepository
         lock (_sync)
         {
             return _movimientos
-                .Select(m => m.Fecha.ToLocalTime().Year)
+                .Select(AnioLocal)
                 .Distinct()
                 .OrderByDescending(a => a)
                 .ToList();
@@ -122,9 +122,29 @@ public sealed class RegistroInventarioRepository
         }
     }
 
+    private static int AnioLocal(MovimientoInventario movimiento)
+    {
+        try
+        {
+            return movimiento.Fecha.ToLocalTime().Year;
+        }
+        catch (ArgumentException)
+        {
+            return movimiento.Fecha.Year;
+        }
+    }
+
     private static bool EnDia(DateTimeOffset fecha, DateTime inicio, DateTime fin)
     {
-        var dia = fecha.ToLocalTime().Date;
+        DateTime dia;
+        try
+        {
+            dia = fecha.ToLocalTime().Date;
+        }
+        catch (ArgumentException)
+        {
+            dia = fecha.Date;
+        }
         return dia >= inicio && dia <= fin;
     }
 
@@ -295,6 +315,17 @@ public sealed class RegistroInventarioRepository
         lock (_sync)
         {
             return _movimientos.Select(Clonar).ToList();
+        }
+    }
+
+    public bool TieneArchivoAnterior(Guid fichaId)
+    {
+        var limite = DateTimeOffset.UtcNow.AddDays(-SincronizadorNube.DiasVentanaHistorial);
+        lock (_sync)
+        {
+            return _porFicha.TryGetValue(fichaId, out var lista)
+                && lista.Any(m => m.Fecha < limite
+                    && !string.Equals(m.Origen, "Stock inicial", StringComparison.OrdinalIgnoreCase));
         }
     }
 

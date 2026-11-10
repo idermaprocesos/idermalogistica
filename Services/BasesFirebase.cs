@@ -12,9 +12,12 @@ internal static class BasesFirebase
     public const string Registro = "registro";
     public const string Precios = "historial-precios";
     public const string Ordenes = "ordenes-compra";
+    public const string OrdenesServicio = "ordenes-servicio";
     public const string Proveedores = "proveedores";
+    public const string Merma = "merma";
+    public const string Mantenimiento = "mantenimiento";
 
-    public static readonly string[] Ids = [Vencimientos, Registro, Precios, Ordenes, Proveedores];
+    public static readonly string[] Ids = [Vencimientos, Registro, Precios, Ordenes, OrdenesServicio, Proveedores, Merma, Mantenimiento];
 
     private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(40) };
     private static string? _ubicacion;

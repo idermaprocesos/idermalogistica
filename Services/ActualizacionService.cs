@@ -34,7 +34,7 @@ public static class ActualizacionService
         {
             var version = typeof(App).Assembly.GetName().Version;
             return version is null || version == new Version(0, 0, 0, 0)
-                ? new Version(8, 0, 0, 0)
+                ? new Version(9, 0, 0, 0)
                 : version;
         }
     }
@@ -423,7 +423,7 @@ public static class ActualizacionService
         {
             Timeout = TimeSpan.FromMinutes(15)
         };
-        cliente.DefaultRequestHeaders.UserAgent.ParseAdd("IdermaCapilarApp/8.0.0");
+        cliente.DefaultRequestHeaders.UserAgent.ParseAdd("IdermaCapilarApp/9.0.0");
         cliente.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
         cliente.DefaultRequestHeaders.TryAddWithoutValidation("X-GitHub-Api-Version", "2022-11-28");
         return cliente;

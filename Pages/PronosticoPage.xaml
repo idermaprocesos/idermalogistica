@@ -1,0 +1,244 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<Page
+    x:Class="IdermaFichas.Pages.PronosticoPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:IdermaFichas.Pages">
+
+    <Grid Padding="24,16" RowSpacing="12">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <StackPanel Spacing="4">
+            <TextBlock Style="{StaticResource TituloPaginaStyle}" Text="Pronóstico" />
+            <TextBlock
+                Style="{StaticResource SubtituloPaginaStyle}"
+                Text="Compara ingresos, salidas y merma del rango elegido con el periodo anterior de la misma duración. La demanda son las salidas que no son merma." />
+        </StackPanel>
+
+        <Grid Grid.Row="1" ColumnSpacing="8">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="180" />
+                <ColumnDefinition Width="150" />
+                <ColumnDefinition Width="150" />
+                <ColumnDefinition Width="200" />
+                <ColumnDefinition Width="170" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <ComboBox
+                x:Name="ComboPeriodo"
+                HorizontalAlignment="Stretch"
+                Header="Rango"
+                SelectedIndex="3"
+                SelectionChanged="Periodo_Changed">
+                <ComboBoxItem Content="Hoy" />
+                <ComboBoxItem Content="Esta semana" />
+                <ComboBoxItem Content="Últimos 7 días" />
+                <ComboBoxItem Content="Últimos 30 días" />
+                <ComboBoxItem Content="Este mes" />
+                <ComboBoxItem Content="Últimos 3 meses" />
+                <ComboBoxItem Content="Últimos 6 meses" />
+                <ComboBoxItem Content="Este año" />
+                <ComboBoxItem Content="Personalizado" />
+            </ComboBox>
+            <CalendarDatePicker
+                x:Name="FechaDesde"
+                Grid.Column="1"
+                Header="Desde"
+                DateChanged="FechaCustom_Changed"
+                Visibility="Collapsed" />
+            <CalendarDatePicker
+                x:Name="FechaHasta"
+                Grid.Column="2"
+                Header="Hasta"
+                DateChanged="FechaCustom_Changed"
+                Visibility="Collapsed" />
+            <ComboBox
+                x:Name="ComboArea"
+                Grid.Column="3"
+                HorizontalAlignment="Stretch"
+                Header="Área"
+                SelectionChanged="Area_Changed" />
+            <ComboBox
+                x:Name="ComboOrden"
+                Grid.Column="4"
+                HorizontalAlignment="Stretch"
+                Header="Orden"
+                SelectedIndex="3"
+                SelectionChanged="Orden_Changed">
+                <ComboBoxItem Content="Más mermas" />
+                <ComboBoxItem Content="Menos mermas" />
+                <ComboBoxItem Content="Más ingresos" />
+                <ComboBoxItem Content="Más salidas" />
+            </ComboBox>
+            <TextBox
+                x:Name="CajaBusqueda"
+                Grid.Column="5"
+                VerticalAlignment="Bottom"
+                PlaceholderText="Buscar por código o nombre"
+                TextChanged="CajaBusqueda_TextChanged" />
+            <Button
+                Grid.Column="6"
+                VerticalAlignment="Bottom"
+                Click="Exportar_Click"
+                Content="Exportar PDF"
+                Style="{StaticResource AccentButtonStyle}" />
+        </Grid>
+
+        <TextBlock
+            x:Name="TextoRango"
+            Grid.Row="2"
+            Opacity="0.75"
+            TextWrapping="Wrap" />
+
+        <Grid Grid.Row="3" ColumnSpacing="8">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <Border Style="{StaticResource TarjetaKpiStyle}">
+                <StackPanel Spacing="2">
+                    <TextBlock FontSize="12" Opacity="0.65" Text="INGRESOS" />
+                    <TextBlock x:Name="KpiIngresos" FontSize="22" FontWeight="SemiBold" Text="0" />
+                </StackPanel>
+            </Border>
+            <Border Grid.Column="1" Style="{StaticResource TarjetaKpiStyle}">
+                <StackPanel Spacing="2">
+                    <TextBlock FontSize="12" Opacity="0.65" Text="SALIDAS" />
+                    <TextBlock x:Name="KpiSalidas" FontSize="22" FontWeight="SemiBold" Text="0" />
+                </StackPanel>
+            </Border>
+            <Border Grid.Column="2" Style="{StaticResource TarjetaKpiStyle}">
+                <StackPanel Spacing="2">
+                    <TextBlock FontSize="12" Opacity="0.65" Text="MERMA" />
+                    <TextBlock x:Name="KpiMerma" FontSize="22" FontWeight="SemiBold" Text="0" />
+                </StackPanel>
+            </Border>
+            <Border Grid.Column="3" Style="{StaticResource TarjetaKpiStyle}">
+                <StackPanel Spacing="2">
+                    <TextBlock FontSize="12" Opacity="0.65" Text="SUBIERON" />
+                    <TextBlock x:Name="KpiSubieron" FontSize="22" FontWeight="SemiBold" Text="0" />
+                </StackPanel>
+            </Border>
+            <Border Grid.Column="4" Style="{StaticResource TarjetaKpiStyle}">
+                <StackPanel Spacing="2">
+                    <TextBlock FontSize="12" Opacity="0.65" Text="BAJARON" />
+                    <TextBlock x:Name="KpiBajaron" FontSize="22" FontWeight="SemiBold" Text="0" />
+                </StackPanel>
+            </Border>
+        </Grid>
+
+        <Grid Grid.Row="4" RowSpacing="6">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+            <InfoBar x:Name="Aviso" IsClosable="True" IsOpen="False" />
+            <Border
+                Grid.Row="1"
+                Padding="8,6"
+                CornerRadius="4"
+                Background="{ThemeResource SubtleFillColorSecondaryBrush}">
+                <Grid ColumnSpacing="8">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="88" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="64" />
+                        <ColumnDefinition Width="76" />
+                        <ColumnDefinition Width="76" />
+                        <ColumnDefinition Width="72" />
+                        <ColumnDefinition Width="76" />
+                        <ColumnDefinition Width="76" />
+                        <ColumnDefinition Width="72" />
+                        <ColumnDefinition Width="84" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock FontSize="12" FontWeight="SemiBold" Text="Código" />
+                    <TextBlock Grid.Column="1" FontSize="12" FontWeight="SemiBold" Text="Producto" />
+                    <TextBlock Grid.Column="2" FontSize="12" FontWeight="SemiBold" Text="Unidad" />
+                    <TextBlock Grid.Column="3" FontSize="12" FontWeight="SemiBold" HorizontalAlignment="Right" Text="Ingresos" />
+                    <TextBlock Grid.Column="4" FontSize="12" FontWeight="SemiBold" HorizontalAlignment="Right" Text="Salidas" />
+                    <TextBlock Grid.Column="5" FontSize="12" FontWeight="SemiBold" HorizontalAlignment="Right" Text="Merma" />
+                    <TextBlock
+                        Grid.Column="6"
+                        FontSize="12"
+                        FontWeight="SemiBold"
+                        HorizontalAlignment="Right"
+                        Text="Anterior"
+                        ToolTipService.ToolTip="Demanda del periodo anterior, de la misma duración." />
+                    <TextBlock Grid.Column="7" FontSize="12" FontWeight="SemiBold" HorizontalAlignment="Right" Text="Variación" />
+                    <TextBlock Grid.Column="8" FontSize="12" FontWeight="SemiBold" Text="Tendencia" />
+                    <TextBlock
+                        Grid.Column="9"
+                        FontSize="12"
+                        FontWeight="SemiBold"
+                        HorizontalAlignment="Right"
+                        Text="Pronóstico"
+                        ToolTipService.ToolTip="Demanda esperada en el siguiente tramo igual, al ritmo diario del rango actual." />
+                </Grid>
+            </Border>
+            <Grid Grid.Row="2">
+                <TextBlock
+                    x:Name="Vacio"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center"
+                    Opacity="0.72"
+                    Text="No hay ingresos, salidas ni merma en este rango ni en el periodo anterior."
+                    TextWrapping="Wrap" />
+                <ListView x:Name="Lista" SelectionMode="None">
+                    <ListView.ItemContainerStyle>
+                        <Style TargetType="ListViewItem">
+                            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                            <Setter Property="Padding" Value="8,6" />
+                        </Style>
+                    </ListView.ItemContainerStyle>
+                    <ListView.ItemTemplate>
+                        <DataTemplate x:DataType="local:PronosticoItem">
+                            <Grid ColumnSpacing="8">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="88" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="64" />
+                                    <ColumnDefinition Width="76" />
+                                    <ColumnDefinition Width="76" />
+                                    <ColumnDefinition Width="72" />
+                                    <ColumnDefinition Width="76" />
+                                    <ColumnDefinition Width="76" />
+                                    <ColumnDefinition Width="72" />
+                                    <ColumnDefinition Width="84" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock VerticalAlignment="Center" Text="{x:Bind Codigo}" TextTrimming="CharacterEllipsis" />
+                                <TextBlock
+                                    Grid.Column="1"
+                                    VerticalAlignment="Center"
+                                    Text="{x:Bind Nombre}"
+                                    TextTrimming="CharacterEllipsis" />
+                                <TextBlock
+                                    Grid.Column="2"
+                                    VerticalAlignment="Center"
+                                    Text="{x:Bind Unidad}"
+                                    TextTrimming="CharacterEllipsis" />
+                                <TextBlock Grid.Column="3" VerticalAlignment="Center" HorizontalAlignment="Right" Text="{x:Bind Ingresos}" />
+                                <TextBlock Grid.Column="4" VerticalAlignment="Center" HorizontalAlignment="Right" Text="{x:Bind Salidas}" />
+                                <TextBlock Grid.Column="5" VerticalAlignment="Center" HorizontalAlignment="Right" Text="{x:Bind Merma}" />
+                                <TextBlock Grid.Column="6" VerticalAlignment="Center" HorizontalAlignment="Right" Text="{x:Bind Anterior}" />
+                                <TextBlock Grid.Column="7" VerticalAlignment="Center" HorizontalAlignment="Right" Text="{x:Bind Variacion}" />
+                                <TextBlock Grid.Column="8" VerticalAlignment="Center" Text="{x:Bind Tendencia}" />
+                                <TextBlock Grid.Column="9" VerticalAlignment="Center" HorizontalAlignment="Right" Text="{x:Bind Pronostico}" />
+                            </Grid>
+                        </DataTemplate>
+                    </ListView.ItemTemplate>
+                </ListView>
+            </Grid>
+        </Grid>
+    </Grid>
+</Page>

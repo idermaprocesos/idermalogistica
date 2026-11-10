@@ -52,7 +52,7 @@
                 <TextBox
                     x:Name="CajaBusqueda"
                     Grid.ColumnSpan="4"
-                    PlaceholderText="Buscar en todos los datos de la ficha"
+                    PlaceholderText="Buscar por código, nombre, categoría, proveedor, ubicación o lote"
                     TextChanged="Filtros_Changed" />
                 <ComboBox
                     x:Name="ComboArea"

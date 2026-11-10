@@ -59,7 +59,8 @@ public static class BusquedaGlobalService
 
         foreach (var area in AreasOperativas.Todas)
         {
-            if (!Coincide($"{area.Nombre} {area.Descripcion} area operativa", filtro))
+            var categoria = AreasOperativas.TituloCategoria(area.CategoriaId);
+            if (!Coincide($"{area.Nombre} {area.Descripcion} {categoria} area operativa", filtro))
             {
                 continue;
             }
@@ -68,8 +69,8 @@ public static class BusquedaGlobalService
             {
                 Titulo = area.Nombre,
                 Subtitulo = string.IsNullOrWhiteSpace(area.Descripcion)
-                    ? "Área operativa"
-                    : area.Descripcion,
+                    ? categoria
+                    : $"{categoria} · {area.Descripcion}",
                 Categoria = "Sección",
                 Glifo = string.IsNullOrWhiteSpace(area.Glifo) ? "\uE8F1" : area.Glifo,
                 Destino = AreasOperativas.EtiquetaMenu(area.Id),
@@ -86,14 +87,12 @@ public static class BusquedaGlobalService
         Seccion("Registro", "Ingresos por producto y unidad", "registro", "\uE81C"),
         Seccion("Historial de precios", "Precios por producto en soles o dólares", "historial-precios", "\uE8D4"),
         Seccion("Orden de compra", "Listado, filtros y órdenes anteriores", "orden-compra", "\uE7BF"),
+        Seccion("Orden de servicio", "Ampliación de contratos por meses", "orden-servicio", "\uE7C3"),
         Seccion("Proveedores", "Calificación, notas y alta por mes o año", "proveedores", "\uE716"),
         Seccion("Notificaciones", "Solicitudes de clínica: aceptar, denegar e historial", "notificaciones", "\uEA8F"),
+        Seccion("Merma y Depurados", "Retirar productos del inventario por vencimiento, daño u otro motivo", "merma", "\uE74D"),
         Seccion("Sin área", "Productos sin área operativa", AreasOperativas.EtiquetaSinArea, "\uE8F1"),
-        Seccion("Generador de etiquetas", "Área logística", "etiquetas", "\uE71B"),
-        Seccion("Personal médico", "Doctores y colegiatura", "recetas", "\uE716"),
-        Seccion("Recetas", "Listas de receta y PDF", "recetas", "\uE8A1"),
-        Seccion("REPORTE DE EVALUACIÓN DE ÁREAS IDERMA", "Dashboard", "dash-reporte", "\uE9D2"),
-        Seccion("INVENTARIO IDERMA", "Dashboard", "dash-inventario", "\uE14C"),
+        Seccion("Generador de etiquetas", "Etiquetas para impresión", "etiquetas", "\uE71B"),
         Seccion("Acerca de", "Información del programa", "acerca", "\uE946"),
         Seccion("Configuración", "Ajustes del programa", "configuracion", "\uE713")
     ];
@@ -130,17 +129,18 @@ public static class BusquedaGlobalService
 
     private static readonly (string Titulo, string Subtitulo)[] Ajustes =
     [
-        ("Autoguardado", "Intervalo y activación"),
-        ("Actualizar programa", "GitHub Releases y copias al reinstalar"),
-        ("Copias de seguridad", "Fichas, registro, recibos e imágenes"),
-        ("Áreas operativas", "Nombre, prefijo y formulario"),
+        ("Ayuda a trabajador nuevo", "Recorrido guiado y guías detalladas por sección"),
+        ("Troubleshooting", "Comprobar el acceso a la base de datos"),
+        ("Áreas operativas", "Categorías, secciones, prefijo y formulario"),
         ("Desplegables de los formularios", "Categorías, unidades y listas"),
+        ("Medicación común", "Importar Excel de medicamentos frecuentes"),
+        ("Autoguardado", "Intervalo y activación"),
+        ("Copias de seguridad", "Fichas, registro, recibos e imágenes"),
+        ("Exportar información", "ZIP con fichas, registro, recibos y fotos"),
         ("Archivo de datos", "Ruta JSON e importación"),
         ("Importar Excel", "Cargar fichas desde Excel"),
-        ("Exportar información", "ZIP con fichas, registro, recibos y fotos"),
         ("Exportar JSON", "Copia del catálogo"),
-        ("Borrar base de datos", "Vaciar el catálogo con copia previa"),
-        ("Ayuda a trabajador nuevo", "Recorrido guiado del menú y la configuración")
+        ("Borrar base de datos", "Vaciar el catálogo con copia previa")
     ];
 
     private static IEnumerable<ResultadoBusquedaGlobal> BuscarProductosYCaracteristicas(string filtro)

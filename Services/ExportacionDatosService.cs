@@ -78,6 +78,9 @@ public static class ExportacionDatosService
             {
                 CopiarSiExiste(App.Instance.Registro.RutaArchivo, Path.Combine(temporal, "registro-ingresos.json"));
                 CopiarSiExiste(App.Instance.OrdenesCompra.RutaArchivo, Path.Combine(temporal, "ordenes-compra.json"));
+                CopiarSiExiste(App.Instance.OrdenesServicio.RutaArchivo, Path.Combine(temporal, "ordenes-servicio-logistica.json"));
+                CopiarSiExiste(App.Instance.Mermas.RutaArchivo, Path.Combine(temporal, "merma.json"));
+                CopiarSiExiste(App.Instance.ControlMantenimiento.RutaArchivo, Path.Combine(temporal, "control-mantenimiento.json"));
             }
 
             if (opciones.Preferencias)

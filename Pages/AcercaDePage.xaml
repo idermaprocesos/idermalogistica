@@ -22,7 +22,8 @@
             <Border
                 Padding="20"
                 CornerRadius="8"
-                BorderThickness="1">
+                BorderThickness="1"
+                DoubleTapped="TarjetaMarca_DoubleTapped">
                 <Border.Background>
                     <SolidColorBrush Color="{ThemeResource CardBackgroundFillColorDefault}" />
                 </Border.Background>

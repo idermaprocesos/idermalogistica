@@ -22,6 +22,12 @@ public sealed class MovimientoInventario
     public bool EsSalida =>
         string.Equals(Tipo, "Salida", StringComparison.OrdinalIgnoreCase);
 
+    public bool EsMerma =>
+        string.Equals(Origen, "Merma", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(TipoDocumento, "Merma", StringComparison.OrdinalIgnoreCase);
+
+    public string EtiquetaTipo => EsMerma ? "Merma" : EsSalida ? "Salida" : "Ingreso";
+
     public double EfectoExistencia => EsSalida ? -Cantidad : Cantidad;
 
     public string DocumentoResumen

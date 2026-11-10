@@ -16,7 +16,6 @@ public sealed class IndiceBusquedaFichas
     private static readonly HashSet<string> PropiedadesExcluidas = new(StringComparer.Ordinal)
     {
         nameof(FichaTecnica.Id),
-        nameof(FichaTecnica.RutaImagen),
         nameof(FichaTecnica.Caracteristicas),
         nameof(FichaTecnica.Partidas)
     };

@@ -34,7 +34,15 @@ public static class FiltroPeriodoIngresos
 
     public static bool Pasa(DateTimeOffset fecha, int? anio, IReadOnlySet<int> meses, DateTimeOffset? desde = null)
     {
-        var local = fecha.ToLocalTime();
+        DateTimeOffset local;
+        try
+        {
+            local = fecha.ToLocalTime();
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
         if (desde is DateTimeOffset inicio)
         {
             return local >= inicio && local <= DateTimeOffset.Now;

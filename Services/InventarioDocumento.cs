@@ -23,21 +23,15 @@ public static class InventarioDocumento
             origen.AreaTitulo,
             origen.Codigo,
             origen.Nombre,
+            PrecioDocumento(origen),
+            MonedaDocumento(origen),
             origen.Categoria,
             origen.Descripcion,
             origen.EstadoFisico,
-            origen.Color,
-            origen.Presentacion,
-            origen.Dimensiones,
-            origen.PesoVolumen,
-            origen.MaterialFabricacion,
             origen.UnidadMedida,
             origen.Marca,
             origen.Modelo,
-            origen.Especificaciones,
             origen.NormasCertificaciones,
-            origen.CondicionesAlmacenamiento,
-            origen.InstruccionesUso,
             origen.VidaUtil,
             origen.Existencia,
             origen.StockMinimo,
@@ -46,7 +40,6 @@ public static class InventarioDocumento
             origen.PlantaOrigen,
             origen.TipoOrigen,
             origen.Proveedor,
-            origen.ContactoProveedor,
             contactos.Canal1,
             contactos.Dato1,
             contactos.Canal2,
@@ -55,15 +48,9 @@ public static class InventarioDocumento
             Fecha(origen.FechaAdquisicion),
             origen.NumeroFactura,
             origen.RegistroSanitario,
-            origen.UsoClinico,
-            origen.Procedimiento,
             SiNo(origen.Esteril),
             SiNo(origen.RequiereRefrigeracion),
-            origen.TemperaturaAlmacenamiento,
             Fecha(origen.FechaCaducidad),
-            origen.Composicion,
-            origen.RiesgoBiologico,
-            origen.Contraindicaciones,
             SiNo(origen.Reutilizable),
             origen.Ubicacion,
             origen.NumeroSerie,
@@ -84,8 +71,7 @@ public static class InventarioDocumento
             origen.EppRequerido,
             origen.MaterialesCompatibles,
             origen.ResiduoGenerado,
-            origen.Observaciones,
-            AlmacenCaracteristicas.SerializarLinea(origen.Caracteristicas)
+            origen.Observaciones
         ];
 
         var documento = new Dictionary<string, object>(ExcelFichaService.Encabezados.Length + 2);
@@ -108,7 +94,6 @@ public static class InventarioDocumento
         documento["Meta"] = new Dictionary<string, object>
         {
             ["Id área"] = origen.Area?.ToString("D") ?? string.Empty,
-            ["Ruta imagen"] = origen.RutaImagen ?? string.Empty,
             ["Fecha creación"] = FechaHora(origen.FechaCreacion),
             ["Fecha actualización"] = FechaHora(origen.FechaActualizacion)
         };
@@ -130,17 +115,13 @@ public static class InventarioDocumento
             Descripcion = Texto(datos, "Descripción"),
             EstadoFisico = Texto(datos, "Estado físico"),
             Color = Texto(datos, "Color"),
-            Presentacion = Texto(datos, "Presentación"),
             Dimensiones = Texto(datos, "Dimensiones"),
             PesoVolumen = Texto(datos, "Peso / volumen"),
             MaterialFabricacion = Texto(datos, "Material"),
             UnidadMedida = Texto(datos, "Unidad"),
             Marca = Texto(datos, "Marca"),
             Modelo = Texto(datos, "Modelo"),
-            Especificaciones = Texto(datos, "Especificaciones"),
             NormasCertificaciones = Texto(datos, "Normas"),
-            CondicionesAlmacenamiento = Texto(datos, "Almacenamiento"),
-            InstruccionesUso = Texto(datos, "Instrucciones"),
             VidaUtil = Texto(datos, "Vida útil"),
             Existencia = Numero(datos, "Existencia"),
             StockMinimo = Numero(datos, "Stock mínimo"),
@@ -158,15 +139,9 @@ public static class InventarioDocumento
             FechaAdquisicion = ParseFecha(Texto(datos, "Fecha adquisición")),
             NumeroFactura = Texto(datos, "Factura"),
             RegistroSanitario = Texto(datos, "Registro sanitario"),
-            UsoClinico = Texto(datos, "Uso clínico"),
-            Procedimiento = Texto(datos, "Procedimiento"),
             Esteril = EsSi(Texto(datos, "Estéril")),
             RequiereRefrigeracion = EsSi(Texto(datos, "Refrigeración")),
-            TemperaturaAlmacenamiento = Texto(datos, "Temperatura"),
             FechaCaducidad = ParseFecha(Texto(datos, "Fecha caducidad")),
-            Composicion = Texto(datos, "Composición"),
-            RiesgoBiologico = Texto(datos, "Riesgo biológico"),
-            Contraindicaciones = Texto(datos, "Contraindicaciones"),
             Reutilizable = EsSi(Texto(datos, "Reutilizable")),
             Ubicacion = Texto(datos, "Ubicación"),
             NumeroSerie = Texto(datos, "Número de serie"),
@@ -189,7 +164,6 @@ public static class InventarioDocumento
             ResiduoGenerado = Texto(datos, "Residuo"),
             Observaciones = Texto(datos, "Observaciones"),
             Caracteristicas = AlmacenCaracteristicas.ParsearLinea(Texto(datos, "Características extra")),
-            RutaImagen = Texto(meta, "Ruta imagen"),
             Partidas = LeerPartidas(datos)
         };
 
@@ -225,6 +199,108 @@ public static class InventarioDocumento
         return ficha;
     }
 
+    public static void CopiarCampos(FichaTecnica destino, FichaTecnica origen, IEnumerable<string> campos)
+    {
+        var presentes = campos as IReadOnlySet<string> ?? new HashSet<string>(campos, StringComparer.Ordinal);
+        void Si(string campo, Action copiar)
+        {
+            if (presentes.Contains(campo))
+            {
+                copiar();
+            }
+        }
+
+        if (presentes.Contains("Área") || presentes.Contains("Meta"))
+        {
+            destino.Area = origen.Area;
+        }
+
+        if (presentes.Contains("Meta"))
+        {
+            destino.FechaCreacion = origen.FechaCreacion;
+            destino.FechaActualizacion = origen.FechaActualizacion;
+        }
+
+        Si("Código", () => destino.Codigo = origen.Codigo);
+        Si("Nombre", () => destino.Nombre = origen.Nombre);
+        Si("Categoría", () => destino.Categoria = origen.Categoria);
+        Si("Descripción", () => destino.Descripcion = origen.Descripcion);
+        Si("Estado físico", () => destino.EstadoFisico = origen.EstadoFisico);
+        Si("Color", () => destino.Color = origen.Color);
+        Si("Dimensiones", () => destino.Dimensiones = origen.Dimensiones);
+        Si("Peso / volumen", () => destino.PesoVolumen = origen.PesoVolumen);
+        Si("Material", () => destino.MaterialFabricacion = origen.MaterialFabricacion);
+        Si("Unidad", () => destino.UnidadMedida = origen.UnidadMedida);
+        Si("Marca", () => destino.Marca = origen.Marca);
+        Si("Modelo", () => destino.Modelo = origen.Modelo);
+        Si("Normas", () => destino.NormasCertificaciones = origen.NormasCertificaciones);
+        Si("Vida útil", () => destino.VidaUtil = origen.VidaUtil);
+        Si("Existencia", () => destino.Existencia = origen.Existencia);
+        Si("Stock mínimo", () => destino.StockMinimo = origen.StockMinimo);
+        Si("Fabricante", () => destino.Fabricante = origen.Fabricante);
+        Si("País", () => destino.PaisOrigen = origen.PaisOrigen);
+        Si("Planta", () => destino.PlantaOrigen = origen.PlantaOrigen);
+        Si("Tipo origen", () => destino.TipoOrigen = origen.TipoOrigen);
+        Si("Proveedor", () => destino.Proveedor = origen.Proveedor);
+        Si("Contacto", () => destino.ContactoProveedor = origen.ContactoProveedor);
+        Si("Canal contacto 1", () => destino.ContactoCanal1 = origen.ContactoCanal1);
+        Si("Dato contacto 1", () => destino.ContactoDato1 = origen.ContactoDato1);
+        Si("Canal contacto 2", () => destino.ContactoCanal2 = origen.ContactoCanal2);
+        Si("Dato contacto 2", () => destino.ContactoDato2 = origen.ContactoDato2);
+        Si("Lote", () => destino.Lote = origen.Lote);
+        Si("Fecha adquisición", () => destino.FechaAdquisicion = origen.FechaAdquisicion);
+        Si("Factura", () => destino.NumeroFactura = origen.NumeroFactura);
+        Si("Registro sanitario", () => destino.RegistroSanitario = origen.RegistroSanitario);
+        Si("Estéril", () => destino.Esteril = origen.Esteril);
+        Si("Refrigeración", () => destino.RequiereRefrigeracion = origen.RequiereRefrigeracion);
+        Si("Fecha caducidad", () => destino.FechaCaducidad = origen.FechaCaducidad);
+        Si("Reutilizable", () => destino.Reutilizable = origen.Reutilizable);
+        Si("Ubicación", () => destino.Ubicacion = origen.Ubicacion);
+        Si("Número de serie", () => destino.NumeroSerie = origen.NumeroSerie);
+        Si("Garantía meses", () => destino.GarantiaMeses = origen.GarantiaMeses);
+        Si("Mantenimiento", () => destino.RequiereMantenimiento = origen.RequiereMantenimiento);
+        Si("Periodicidad", () => destino.PeriodicidadMantenimiento = origen.PeriodicidadMantenimiento);
+        Si("Voltaje", () => destino.Voltaje = origen.Voltaje);
+        Si("Compatibilidad", () => destino.Compatibilidad = origen.Compatibilidad);
+        Si("Responsable", () => destino.Responsable = origen.Responsable);
+        Si("Principio activo", () => destino.PrincipioActivo = origen.PrincipioActivo);
+        Si("Concentración", () => destino.Concentracion = origen.Concentracion);
+        Si("pH", () => destino.Ph = origen.Ph);
+        Si("Superficies", () => destino.SuperficiesUso = origen.SuperficiesUso);
+        Si("Tiempo contacto", () => destino.TiempoContacto = origen.TiempoContacto);
+        Si("Dilución", () => destino.Dilucion = origen.Dilucion);
+        Si("Peligrosidad", () => destino.Peligrosidad = origen.Peligrosidad);
+        Si("SDS", () => destino.HojaSeguridad = origen.HojaSeguridad);
+        Si("EPP", () => destino.EppRequerido = origen.EppRequerido);
+        Si("Materiales compatibles", () => destino.MaterialesCompatibles = origen.MaterialesCompatibles);
+        Si("Residuo", () => destino.ResiduoGenerado = origen.ResiduoGenerado);
+        Si("Observaciones", () => destino.Observaciones = origen.Observaciones);
+        Si("Características extra", () => destino.Caracteristicas = origen.Caracteristicas.Select(c => c.Clonar()).ToList());
+        Si("Partidas", () => destino.Partidas = origen.Partidas.Select(p => p.Clonar()).ToList());
+        if (presentes.Contains("Partidas"))
+        {
+            PartidasInventario.Normalizar(destino);
+        }
+
+        if (presentes.Contains("Contacto")
+            || presentes.Contains("Canal contacto 1")
+            || presentes.Contains("Dato contacto 1")
+            || presentes.Contains("Canal contacto 2")
+            || presentes.Contains("Dato contacto 2"))
+        {
+            destino.ContactosProveedorDefinidos = origen.ContactosProveedorDefinidos;
+        }
+    }
+
+    public static FichaTecnica CombinarListaConNube(FichaTecnica editada, FichaTecnica nube, IEnumerable<string> camposCargados)
+    {
+        var resultado = nube.Clonar();
+        resultado.Id = editada.Id;
+        CopiarCampos(resultado, editada, camposCargados);
+        resultado.LecturaCompleta = true;
+        return resultado;
+    }
+
     public static string Huella(FichaTecnica ficha)
     {
         var documento = Crear(ficha);
@@ -249,7 +325,6 @@ public static class InventarioDocumento
 
         var meta = Mapa(documento["Meta"]);
         partes.Add(Texto(meta, "Id área"));
-        partes.Add(Texto(meta, "Ruta imagen"));
         return string.Join("\n", partes);
     }
 
@@ -339,6 +414,18 @@ public static class InventarioDocumento
             string texto when double.TryParse(texto, NumberStyles.Any, CultureInfo.CurrentCulture, out var local) => local,
             _ => 0
         };
+    }
+
+    private static object PrecioDocumento(FichaTecnica ficha)
+    {
+        var ultimo = App.Instance.HistorialPrecios.Ultimo(ficha.Id);
+        return ultimo is null ? string.Empty : ultimo.Monto;
+    }
+
+    private static string MonedaDocumento(FichaTecnica ficha)
+    {
+        var ultimo = App.Instance.HistorialPrecios.Ultimo(ficha.Id);
+        return ultimo is null ? string.Empty : MonedaPrecio.Etiqueta(ultimo.Moneda);
     }
 
     private static string Fecha(DateTimeOffset? fecha) =>

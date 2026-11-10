@@ -4,6 +4,14 @@ namespace IdermaFichas.Services;
 
 public static class SalidasSolicitudClinica
 {
+    public const string TipoDocumento = "Solicitud clínica";
+
+    public static bool YaRegistrada(SolicitudClinica solicitud)
+    {
+        ArgumentNullException.ThrowIfNull(solicitud);
+        return MovimientosDe(NumeroDocumento(solicitud)).Count > 0;
+    }
+
     public static string Registrar(SolicitudClinica solicitud)
     {
         ArgumentNullException.ThrowIfNull(solicitud);
@@ -12,11 +20,20 @@ public static class SalidasSolicitudClinica
             throw new InvalidOperationException("La solicitud no tiene productos para retirar.");
         }
 
+        var numero = NumeroDocumento(solicitud);
+        var previas = MovimientosDe(numero);
+        if (previas.Count > 0)
+        {
+            var piezasPrevias = previas.Sum(m => m.Cantidad);
+            return $"Las salidas por {numero} ya estaban registradas " +
+                   $"({previas.Count} · {piezasPrevias.ToString("0.##")} pzas).";
+        }
+
         var repo = App.Instance.Repositorio;
         var preparadas = new List<(FichaTecnica Ficha, List<PartidasInventario.ConsumoPartida> Consumos, LineaSolicitudClinica Linea)>();
         var faltantes = new List<string>();
 
-        foreach (var linea in solicitud.Items.Where(i => i.Cantidad > 0))
+        foreach (var linea in solicitud.Items.Where(i => CantidadAEntregar(i) > 0))
         {
             var original = BuscarFicha(repo.Todas, linea);
             if (original is null)
@@ -29,7 +46,7 @@ public static class SalidasSolicitudClinica
             PartidasInventario.Normalizar(ficha);
             if (!PartidasInventario.IntentarSalidaFefo(
                     ficha,
-                    linea.Cantidad,
+                    CantidadAEntregar(linea),
                     partidaId: null,
                     lote: null,
                     fecha: null,
@@ -58,8 +75,6 @@ public static class SalidasSolicitudClinica
 
         var movimientos = new List<MovimientoInventario>();
         var ahora = DateTimeOffset.Now;
-        var tipoDocumento = "Solicitud clínica";
-        var numero = string.IsNullOrWhiteSpace(solicitud.Folio) ? solicitud.Id : solicitud.Folio;
         var nota = string.IsNullOrWhiteSpace(solicitud.Enfermera)
             ? "Salida por solicitud de clínica"
             : $"Salida por solicitud de clínica · {solicitud.Enfermera}";
@@ -82,7 +97,7 @@ public static class SalidasSolicitudClinica
                     ExistenciaResultante = resultante,
                     Tipo = "Salida",
                     Origen = "Salida",
-                    TipoDocumento = tipoDocumento,
+                    TipoDocumento = TipoDocumento,
                     NumeroDocumento = numero,
                     Nota = nota
                 });
@@ -95,6 +110,71 @@ public static class SalidasSolicitudClinica
         var piezas = movimientos.Sum(m => m.Cantidad);
         return $"Se registraron {movimientos.Count} salida{(movimientos.Count == 1 ? "" : "s")} " +
                $"({piezas.ToString("0.##")} pzas) en Registro por {numero}.";
+    }
+
+    /// <summary>
+    /// Deshace las salidas de una solicitud (stock + movimientos) si falló confirmar en Firebase.
+    /// </summary>
+    public static void Revertir(SolicitudClinica solicitud)
+    {
+        ArgumentNullException.ThrowIfNull(solicitud);
+        var numero = NumeroDocumento(solicitud);
+        var movimientos = MovimientosDe(numero);
+        if (movimientos.Count == 0)
+        {
+            return;
+        }
+
+        var repo = App.Instance.Repositorio;
+        foreach (var grupo in movimientos.GroupBy(m => m.FichaId))
+        {
+            var original = repo.Obtener(grupo.Key);
+            if (original is null)
+            {
+                continue;
+            }
+
+            var ficha = original.Clonar();
+            PartidasInventario.Normalizar(ficha);
+            var ids = grupo.Select(m => m.Id).ToHashSet();
+            foreach (var movimiento in grupo.OrderByDescending(m => m.Fecha).ThenByDescending(m => m.Id))
+            {
+                PartidasInventario.Revertir(ficha, movimiento);
+            }
+
+            if (!App.Instance.Registro.IntentarMutar(
+                    ficha.Id,
+                    original.Existencia,
+                    lista => lista.RemoveAll(m => ids.Contains(m.Id)),
+                    out var existencia,
+                    out _))
+            {
+                // Si el historial no se pudo mutar, igual reponemos stock local.
+                existencia = ficha.Existencia;
+            }
+
+            ficha.Existencia = existencia;
+            PartidasInventario.PrepararParaGuardar(ficha);
+            repo.GuardarFicha(ficha, registrarIngresoAutomatico: false);
+        }
+    }
+
+    public static string NumeroDocumento(SolicitudClinica solicitud) =>
+        string.IsNullOrWhiteSpace(solicitud.Folio) ? solicitud.Id : solicitud.Folio.Trim();
+
+    private static List<MovimientoInventario> MovimientosDe(string numero)
+    {
+        if (string.IsNullOrWhiteSpace(numero))
+        {
+            return [];
+        }
+
+        return App.Instance.Registro.CopiarTodos()
+            .Where(m =>
+                m.EsSalida
+                && string.Equals(m.TipoDocumento, TipoDocumento, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(m.NumeroDocumento, numero, StringComparison.OrdinalIgnoreCase))
+            .ToList();
     }
 
     private static FichaTecnica? BuscarFicha(IReadOnlyList<FichaTecnica> fichas, LineaSolicitudClinica linea)
@@ -160,7 +240,10 @@ public static class SalidasSolicitudClinica
             partes.Add(linea.Nombre);
         }
 
-        partes.Add($"x{linea.Cantidad}");
+        partes.Add($"x{CantidadAEntregar(linea)}");
         return string.Join(" ", partes);
     }
+
+    private static int CantidadAEntregar(LineaSolicitudClinica linea) =>
+        Math.Max(0, linea.CantidadRespuesta ?? linea.Cantidad);
 }

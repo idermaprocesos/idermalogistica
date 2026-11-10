@@ -47,6 +47,8 @@ public sealed class FichaRepository
 
     public event EventHandler? InventarioExternoActualizado;
 
+    public void NotificarVistas() => InventarioExternoActualizado?.Invoke(this, EventArgs.Empty);
+
     public void Cargar()
     {
         lock (SyncRoot)
@@ -55,7 +57,12 @@ public sealed class FichaRepository
 
             if (!File.Exists(RutaArchivo))
             {
-                RestaurarEjemplos();
+                // Vacío hasta que Firebase entregue el inventario real.
+                // Los ejemplos solo se cargan desde Ajustes → Restaurar ejemplos.
+                _fichas.Clear();
+                Guardar();
+                ReconstruirIndices();
+                SincronizarColeccion();
                 return;
             }
 
@@ -521,6 +528,7 @@ public sealed class FichaRepository
             }
         }
 
+        AplicarPreciosImportados(fichas);
         if (nuevas + actualizadas > 0)
         {
             RegistrarDeltasExistencia(anteriores);
@@ -528,6 +536,39 @@ public sealed class FichaRepository
         }
 
         return new ResultadoImportacion(nuevas, actualizadas, omitidas);
+    }
+
+    private static void AplicarPreciosImportados(IEnumerable<FichaTecnica> fichas)
+    {
+        foreach (var ficha in fichas)
+        {
+            if (ficha.Id == Guid.Empty
+                || string.IsNullOrWhiteSpace(ficha.Nombre)
+                || ficha.PrecioCarga is not double monto
+                || monto < 0)
+            {
+                continue;
+            }
+
+            monto = Math.Round(monto, 2);
+            var moneda = MonedaPrecio.Interpretar(ficha.MonedaCarga);
+            var ultimo = App.Instance.HistorialPrecios.Ultimo(ficha.Id);
+            if (ultimo is not null
+                && Math.Abs(Math.Round(ultimo.Monto, 2) - monto) < 0.001
+                && MonedaPrecio.Normalizar(ultimo.Moneda) == moneda)
+            {
+                continue;
+            }
+
+            App.Instance.HistorialPrecios.GuardarPrecio(new PrecioProducto
+            {
+                FichaId = ficha.Id,
+                Fecha = DateTimeOffset.Now,
+                Monto = monto,
+                Moneda = moneda,
+                Nota = "Carga de inventario"
+            });
+        }
     }
 
     public string VaciarConCopiaSeguridad()
@@ -768,7 +809,6 @@ public sealed class FichaRepository
                     PartidasInventario.Normalizar(cambio);
                     if (_porId.TryGetValue(cambio.Id, out var anterior))
                     {
-                        ConservarImagenLocal(cambio, anterior);
                         if (InventarioDocumento.Huella(anterior) == InventarioDocumento.Huella(cambio))
                         {
                             continue;
@@ -843,19 +883,6 @@ public sealed class FichaRepository
         else
         {
             ModulosNube.PublicarDesdeFichas(fichas, eliminadas);
-        }
-    }
-
-    private static void ConservarImagenLocal(FichaTecnica destino, FichaTecnica origen)
-    {
-        if (!string.IsNullOrWhiteSpace(destino.RutaImagen) && File.Exists(destino.RutaImagen))
-        {
-            return;
-        }
-
-        if (!string.IsNullOrWhiteSpace(origen.RutaImagen) && File.Exists(origen.RutaImagen))
-        {
-            destino.RutaImagen = origen.RutaImagen;
         }
     }
 

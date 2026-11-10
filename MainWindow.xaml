@@ -5,7 +5,7 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-    Title="Iderma Capilar · Fichas técnicas"
+    Title="Iderma Capilar — Área logística"
     mc:Ignorable="d">
     <Window.SystemBackdrop>
         <MicaBackdrop />
@@ -19,8 +19,8 @@
 
         <TitleBar
             x:Name="AppTitleBar"
-            Title="Iderma Capilar · Fichas técnicas"
-            Subtitle="Materiales por área"
+            Title="Iderma Capilar"
+            Subtitle="Área logística"
             BackRequested="TitleBar_BackRequested"
             IsBackButtonVisible="{x:Bind NavFrame.CanGoBack, Mode=OneWay}"
             IsPaneToggleButtonVisible="True"
@@ -28,18 +28,19 @@
             <TitleBar.IconSource>
                 <ImageIconSource ImageSource="img/logo.ico" />
             </TitleBar.IconSource>
+            <TitleBar.Content>
+                <TextBox
+                    x:Name="CajaBusquedaGlobal"
+                    MinWidth="240"
+                    MaxLength="80"
+                    Margin="8,0,12,0"
+                    HorizontalAlignment="Stretch"
+                    VerticalAlignment="Center"
+                    PlaceholderText="Buscar un producto en inventario, vencimientos, registro, órdenes de compra, órdenes de servicio o precios"
+                    KeyDown="CajaBusquedaGlobal_KeyDown"
+                    TextChanged="CajaBusquedaGlobal_TextChanged" />
+            </TitleBar.Content>
         </TitleBar>
-
-        <TextBox
-            x:Name="CajaBusquedaGlobal"
-            Grid.Row="0"
-            Width="520"
-            MaxLength="80"
-            HorizontalAlignment="Center"
-            VerticalAlignment="Center"
-            PlaceholderText="Buscar un producto en inventario, vencimientos, registro, órdenes o precios"
-            KeyDown="CajaBusquedaGlobal_KeyDown"
-            TextChanged="CajaBusquedaGlobal_TextChanged" />
 
         <NavigationView
             x:Name="NavView"
@@ -60,14 +61,10 @@
                         <FontIcon Glyph="&#xE80F;" />
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
+                <NavigationViewItemHeader Content="Inventario" />
                 <NavigationViewItem x:Name="ItemCatalogo" Content="Inventario" Tag="catalogo">
                     <NavigationViewItem.Icon>
                         <FontIcon Glyph="&#xE8A5;" />
-                    </NavigationViewItem.Icon>
-                </NavigationViewItem>
-                <NavigationViewItem x:Name="ItemCaducidad" Content="Vencimientos" Tag="caducidad">
-                    <NavigationViewItem.Icon>
-                        <FontIcon Glyph="&#xE787;" />
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
                 <NavigationViewItem x:Name="ItemRegistro" Content="Registro" Tag="registro">
@@ -75,19 +72,25 @@
                         <FontIcon Glyph="&#xE81C;" />
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
-                <NavigationViewItem x:Name="ItemHistorialPrecios" Content="Historial de precios" Tag="historial-precios">
+                <NavigationViewItem x:Name="ItemCaducidad" Content="Vencimientos" Tag="caducidad">
                     <NavigationViewItem.Icon>
-                        <FontIcon Glyph="&#xE8D4;" />
+                        <FontIcon Glyph="&#xE787;" />
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
+                <NavigationViewItemHeader Content="Gestión" />
                 <NavigationViewItem x:Name="ItemOrdenCompra" Content="Orden de compra" Tag="orden-compra">
                     <NavigationViewItem.Icon>
                         <FontIcon Glyph="&#xE7BF;" />
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
-                <NavigationViewItem x:Name="ItemProveedores" Content="Proveedores" Tag="proveedores">
+                <NavigationViewItem x:Name="ItemOrdenServicio" Content="Orden de servicio" Tag="orden-servicio">
                     <NavigationViewItem.Icon>
-                        <FontIcon Glyph="&#xE716;" />
+                        <FontIcon Glyph="&#xE7C3;" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
+                <NavigationViewItem x:Name="ItemHistorialPrecios" Content="Historial de precios" Tag="historial-precios">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE8D4;" />
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
                 <NavigationViewItem x:Name="ItemNotificaciones" Content="Notificaciones" Tag="notificaciones">
@@ -95,20 +98,30 @@
                         <FontIcon Glyph="&#xEA8F;" />
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
-                <NavigationViewItemHeader Content="Áreas operativas" />
-                <NavigationViewItem Content="Clínica" Tag="clinica">
+                <NavigationViewItem x:Name="ItemProveedores" Content="Proveedores" Tag="proveedores">
                     <NavigationViewItem.Icon>
-                        <FontIcon Glyph="&#xE95E;" />
+                        <FontIcon Glyph="&#xE716;" />
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
-                <NavigationViewItem Content="Oficina" Tag="oficina">
+                <NavigationViewItem x:Name="ItemPronostico" Content="Pronóstico" Tag="pronostico">
                     <NavigationViewItem.Icon>
-                        <FontIcon Glyph="&#xE8F1;" />
+                        <FontIcon Glyph="&#xE9D2;" />
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
-                <NavigationViewItem Content="Materiales y Suministros" Tag="limpieza">
+                <NavigationViewItemHeader Content="Control" />
+                <NavigationViewItem x:Name="ItemEtiquetas" Content="Generador de etiquetas" Tag="etiquetas">
                     <NavigationViewItem.Icon>
-                        <FontIcon Glyph="&#xEA18;" />
+                        <FontIcon Glyph="&#xE71B;" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
+                <NavigationViewItem x:Name="ItemMantenimiento" Content="Mantenimiento" Tag="mantenimiento">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE90F;" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
+                <NavigationViewItem x:Name="ItemMerma" Content="Merma y Depurados" Tag="merma">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE74D;" />
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
                 <NavigationViewItemHeader Content="Recursos humanos" Visibility="Collapsed" />
@@ -142,24 +155,19 @@
                         <FontIcon Glyph="&#xE73E;" />
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
-                <NavigationViewItemHeader Content="Personal médico" />
-                <NavigationViewItem x:Name="ItemRecetas" Content="Recetas" Tag="recetas">
+                <NavigationViewItemHeader Content="Personal médico" Visibility="Collapsed" />
+                <NavigationViewItem x:Name="ItemRecetas" Content="Recetas" Tag="recetas" Visibility="Collapsed">
                     <NavigationViewItem.Icon>
                         <FontIcon Glyph="&#xE8A1;" />
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
-                <NavigationViewItemHeader Content="Área logística" />
-                <NavigationViewItem x:Name="ItemEtiquetas" Content="Generador de etiquetas" Tag="etiquetas">
-                    <NavigationViewItem.Icon>
-                        <FontIcon Glyph="&#xE71B;" />
-                    </NavigationViewItem.Icon>
-                </NavigationViewItem>
-                <NavigationViewItemHeader Content="Dashboards" />
+                <NavigationViewItemHeader Content="Dashboards" Visibility="Collapsed" />
                 <NavigationViewItem
                     x:Name="ItemDashboards"
                     Content="Dashboards"
                     SelectsOnInvoked="False"
-                    Tag="dashboards">
+                    Tag="dashboards"
+                    Visibility="Collapsed">
                     <NavigationViewItem.Icon>
                         <FontIcon Glyph="&#xE9D9;" />
                     </NavigationViewItem.Icon>

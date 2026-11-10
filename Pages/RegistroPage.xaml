@@ -25,12 +25,10 @@
                 Text="Ingresos por producto, agrupados por unidad." />
         </StackPanel>
 
-        <ScrollViewer
-            Grid.Row="1"
-            HorizontalScrollBarVisibility="Auto"
-            VerticalScrollBarVisibility="Disabled">
+        <StackPanel Grid.Row="1" Spacing="8">
+            <StackPanel x:Name="PanelUnidadesFila1" Orientation="Horizontal" Spacing="8" />
             <StackPanel Orientation="Horizontal" Spacing="8">
-                <StackPanel x:Name="PanelUnidades" Orientation="Horizontal" Spacing="8" />
+                <StackPanel x:Name="PanelUnidadesFila2" Orientation="Horizontal" Spacing="8" />
                 <ToggleButton
                     x:Name="ChipStockCritico"
                     Click="ChipStock_Click">
@@ -50,7 +48,7 @@
                 </ToggleButton>
                 <Button Click="LimpiarFiltros_Click" Content="Limpiar filtros" />
             </StackPanel>
-        </ScrollViewer>
+        </StackPanel>
 
         <StackPanel Grid.Row="2" Spacing="8">
             <Grid VerticalAlignment="Center" ColumnSpacing="8">
@@ -65,7 +63,7 @@
                     MaxHeight="32"
                     VerticalAlignment="Center"
                     AcceptsReturn="False"
-                    PlaceholderText="Buscar en todos los datos de la ficha"
+                    PlaceholderText="Buscar por código, nombre, categoría, proveedor, ubicación o lote"
                     TextWrapping="NoWrap"
                     TextChanged="CajaBusqueda_TextChanged" />
                 <ComboBox
@@ -363,6 +361,13 @@
                             Content="Borrar lotes"
                             IsEnabled="False"
                             ToolTipService.ToolTip="Quita lotes de este producto y descuenta su cantidad de la existencia." />
+                        <ComboBox
+                            x:Name="ComboAlcanceHistorial"
+                            Grid.Column="4"
+                            MinWidth="156"
+                            HorizontalAlignment="Right"
+                            VerticalAlignment="Center"
+                            ToolTipService.ToolTip="Qué movimientos incluir en el reporte de este producto: todos, ingresos, egresos o mermas." />
                         <Button
                             Grid.Column="5"
                             Click="ExportarHistorial_Click"
@@ -464,8 +469,24 @@
                                     VerticalAlignment="Center"
                                     FontSize="13"
                                     FontWeight="SemiBold"
-                                    Foreground="{x:Bind PincelCantidad}"
-                                    Text="{x:Bind CantidadTexto}" />
+                                    Foreground="#3DD68C"
+                                    Text="{x:Bind CantidadTexto}"
+                                    Visibility="{x:Bind VisibilidadIngreso, Mode=OneWay}" />
+                                <TextBlock
+                                    Grid.Column="3"
+                                    VerticalAlignment="Center"
+                                    FontSize="13"
+                                    FontWeight="SemiBold"
+                                    Foreground="#E85C5C"
+                                    Text="{x:Bind CantidadTexto}"
+                                    Visibility="{x:Bind VisibilidadSalida, Mode=OneWay}" />
+                                <TextBlock
+                                    Grid.Column="3"
+                                    VerticalAlignment="Center"
+                                    FontSize="13"
+                                    FontWeight="SemiBold"
+                                    Text="{x:Bind CantidadTexto}"
+                                    Visibility="{x:Bind VisibilidadNeutro, Mode=OneWay}" />
                                 <TextBlock
                                     Grid.Column="4"
                                     VerticalAlignment="Center"
@@ -531,7 +552,6 @@
                                 Grid.Row="1"
                                 MinHeight="32"
                                 HorizontalAlignment="Stretch"
-                                DisplayMemberPath="Texto"
                                 PlaceholderText="Lote (caducidad más próxima)"
                                 SelectionChanged="ComboPartidaMovimiento_SelectionChanged" />
                             <TextBox

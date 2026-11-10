@@ -70,8 +70,44 @@ public sealed class HistorialPreciosRepository
         }
     }
 
-    public PrecioProducto? Ultimo(Guid fichaId) =>
-        DeFicha(fichaId).FirstOrDefault();
+    public PrecioProducto? Ultimo(Guid fichaId)
+    {
+        lock (_candado)
+        {
+            PrecioProducto? mejor = null;
+            foreach (var precio in _precios)
+            {
+                if (precio is null || precio.FichaId != fichaId)
+                {
+                    continue;
+                }
+
+                if (mejor is null
+                    || precio.Fecha > mejor.Fecha
+                    || (precio.Fecha == mejor.Fecha && precio.Id.CompareTo(mejor.Id) > 0))
+                {
+                    mejor = precio;
+                }
+            }
+
+            return mejor?.Clonar();
+        }
+    }
+
+    public string TextoUltimo(Guid fichaId)
+    {
+        var ultimo = Ultimo(fichaId);
+        return ultimo is null ? "Sin precio" : MonedaPrecio.Formato(ultimo.Monto, ultimo.Moneda);
+    }
+
+    public bool TieneArchivoAnterior(Guid fichaId)
+    {
+        var limite = DateTimeOffset.UtcNow.AddDays(-SincronizadorNube.DiasVentanaHistorial);
+        lock (_candado)
+        {
+            return _precios.Any(p => p.FichaId == fichaId && p.Fecha < limite);
+        }
+    }
 
     public PrecioProducto GuardarPrecio(PrecioProducto precio)
     {

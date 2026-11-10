@@ -245,25 +245,16 @@ public static class PdfFichaService
                 ("Unidad de medida", f.UnidadMedida),
                 ("Área", f.AreaTitulo),
                 ("Estado físico", f.EstadoFisico),
-                ("Presentación", f.Presentacion),
                 ("Descripción", f.Descripcion)));
-
-            var imagen = ImagenFichaService.RutaEfectiva(f);
-            if (imagen is not null)
-            {
-                col.Item().MaxHeight(160).AlignLeft().Image(imagen).FitArea();
-            }
 
             col.Item().Element(c => Seccion(c, "2. Características técnicas",
                 ("Marca", f.Marca),
                 ("Modelo", f.Modelo),
                 ("Normas / certificaciones", f.NormasCertificaciones),
                 ("Vida útil", f.VidaUtil),
+                ("Precio", App.Instance.HistorialPrecios.TextoUltimo(f.Id)),
                 ("Existencia", f.Existencia.ToString("0.##")),
-                ("Stock mínimo", f.StockMinimo.ToString("0.##")),
-                ("Especificaciones", f.Especificaciones),
-                ("Almacenamiento", f.CondicionesAlmacenamiento),
-                ("Instrucciones de uso", f.InstruccionesUso)));
+                ("Stock mínimo", f.StockMinimo.ToString("0.##"))));
 
             col.Item().Element(c => Seccion(c, "3. Procedencia",
                 ("Fabricante", f.Fabricante),
@@ -287,15 +278,9 @@ public static class PdfFichaService
             if (AreasOperativas.Plantilla(f.Area) == AreaOperativa.Clinica)
             {
                 col.Item().Element(c => Seccion(c, "5. Particularidades de clínica",
-                    ("Uso clínico", f.UsoClinico),
-                    ("Procedimiento", f.Procedimiento),
                     ("Estéril", SiNo(f.Esteril)),
                     ("Refrigeración", SiNo(f.RequiereRefrigeracion)),
-                    ("Temperatura", f.TemperaturaAlmacenamiento),
                     ("Caducidad de referencia", Fecha(f.FechaCaducidad)),
-                    ("Riesgo biológico", f.RiesgoBiologico),
-                    ("Composición", f.Composicion),
-                    ("Contraindicaciones", f.Contraindicaciones),
                     ("Reutilizable", SiNo(f.Reutilizable))));
             }
             else if (AreasOperativas.Plantilla(f.Area) == AreaOperativa.Oficina)

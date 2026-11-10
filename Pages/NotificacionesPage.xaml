@@ -13,27 +13,13 @@
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
-        <Grid ColumnSpacing="12">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="Auto" />
-            </Grid.ColumnDefinitions>
-            <StackPanel Spacing="4">
+        <StackPanel Spacing="4">
                 <TextBlock Style="{StaticResource TituloPaginaStyle}" Text="Notificaciones" />
                 <TextBlock
                     Style="{StaticResource SubtituloPaginaStyle}"
-                    Text="Solicitudes de clínica. Al aceptar se registra la salida en Registro; al denegar se pide un motivo." />
+                    Text="Solicitudes de clínica, reportes de incidencias y autorizaciones de borrado." />
                 <TextBlock x:Name="TextoConteo" Opacity="0.72" Text="0 notificaciones" />
-            </StackPanel>
-            <StackPanel
-                Grid.Column="1"
-                VerticalAlignment="Center"
-                Orientation="Horizontal"
-                Spacing="8">
-                <Button Click="ExportarExcel_Click" Content="Exportar Excel" />
-                <Button Click="ExportarPdf_Click" Content="Exportar PDF" Style="{StaticResource AccentButtonStyle}" />
-            </StackPanel>
-        </Grid>
+        </StackPanel>
 
         <InfoBar
             x:Name="BarraEstado"
@@ -48,7 +34,7 @@
             </Grid.ColumnDefinitions>
             <TextBox
                 x:Name="CajaBusqueda"
-                PlaceholderText="Buscar por folio, enfermera, producto o motivo"
+                PlaceholderText="Buscar por folio, persona, producto o motivo"
                 TextChanged="CajaBusqueda_TextChanged" />
             <ComboBox
                 x:Name="ComboEstado"
@@ -57,7 +43,35 @@
                 SelectionChanged="Filtro_Changed" />
         </Grid>
 
-        <Grid Grid.Row="3">
+        <Grid Grid.Row="3" ColumnSpacing="12">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+
+            <Grid RowSpacing="8">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+            <Grid ColumnSpacing="6">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBlock
+                    VerticalAlignment="Center"
+                    Style="{StaticResource BodyStrongTextBlockStyle}"
+                    Text="Solicitudes de clínica"
+                    TextTrimming="CharacterEllipsis" />
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4">
+                    <Button Padding="8,2" Click="ExportarClinicaExcel_Click" Content="Excel" />
+                    <Button Padding="8,2" Click="ExportarClinicaPdf_Click" Content="PDF" />
+                </StackPanel>
+            </Grid>
+
+            <Grid Grid.Row="1">
             <ListView
                 x:Name="ListaNotificaciones"
                 IsItemClickEnabled="False"
@@ -65,88 +79,88 @@
                 <ListView.ItemContainerStyle>
                     <Style TargetType="ListViewItem">
                         <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-                        <Setter Property="Padding" Value="0,0,0,8" />
+                        <Setter Property="MinHeight" Value="0" />
+                        <Setter Property="Padding" Value="0,1,0,1" />
                     </Style>
                 </ListView.ItemContainerStyle>
                 <ListView.ItemTemplate>
                     <DataTemplate x:DataType="models:SolicitudClinica">
                         <Border
-                            Padding="14,10"
+                            Padding="10,6"
                             Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
                             BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                             BorderThickness="1"
-                            CornerRadius="{ThemeResource OverlayCornerRadius}">
-                            <Grid RowSpacing="8">
-                                <Grid.RowDefinitions>
-                                    <RowDefinition Height="Auto" />
-                                    <RowDefinition Height="Auto" />
-                                    <RowDefinition Height="Auto" />
-                                    <RowDefinition Height="Auto" />
-                                    <RowDefinition Height="Auto" />
-                                </Grid.RowDefinitions>
-
-                                <Grid ColumnSpacing="8">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*" />
-                                        <ColumnDefinition Width="Auto" />
-                                    </Grid.ColumnDefinitions>
-                                    <StackPanel Spacing="0">
-                                        <TextBlock Style="{StaticResource BodyStrongTextBlockStyle}" Text="{x:Bind Folio}" />
-                                        <TextBlock
-                                            Opacity="0.72"
-                                            Style="{StaticResource CaptionTextBlockStyle}"
-                                            Text="{x:Bind FechaTexto}" />
-                                    </StackPanel>
+                            CornerRadius="6">
+                            <StackPanel Spacing="6">
+                                <StackPanel Spacing="0">
+                                    <TextBlock Style="{StaticResource CaptionTextBlockStyle}" FontWeight="SemiBold" Text="{x:Bind Folio}" />
+                                    <TextBlock Opacity="0.65" Style="{StaticResource CaptionTextBlockStyle}" Text="{x:Bind FechaTexto}" />
+                                    <TextBlock
+                                        Opacity="0.85"
+                                        Style="{StaticResource CaptionTextBlockStyle}"
+                                        Text="{x:Bind Resumen}"
+                                        TextWrapping="Wrap" />
+                                    <TextBlock
+                                        Opacity="0.72"
+                                        Style="{StaticResource CaptionTextBlockStyle}"
+                                        Text="{x:Bind Detalle}"
+                                        TextWrapping="Wrap" />
+                                    <TextBlock
+                                        Opacity="0.8"
+                                        Style="{StaticResource CaptionTextBlockStyle}"
+                                        Text="{x:Bind ResumenRespuesta, Mode=OneWay}"
+                                        TextWrapping="Wrap"
+                                        Visibility="{x:Bind EstaRespondida, Mode=OneWay}" />
+                                </StackPanel>
+                                <Grid>
                                     <StackPanel
-                                        Grid.Column="1"
+                                        HorizontalAlignment="Left"
+                                        VerticalAlignment="Bottom"
                                         Orientation="Horizontal"
                                         Spacing="6">
                                         <Border
-                                            Padding="8,2"
+                                            Padding="6,1"
                                             Background="{ThemeResource SystemFillColorCautionBackgroundBrush}"
-                                            CornerRadius="{ThemeResource ControlCornerRadius}"
+                                            CornerRadius="4"
                                             Visibility="{x:Bind Urgente}">
-                                            <TextBlock Style="{StaticResource CaptionTextBlockStyle}" Text="Urgente" />
+                                            <TextBlock FontSize="11" Text="Urgente" />
                                         </Border>
                                         <Border
-                                            Padding="8,2"
+                                            Padding="6,1"
                                             Background="{ThemeResource SubtleFillColorSecondaryBrush}"
-                                            CornerRadius="{ThemeResource ControlCornerRadius}">
-                                            <TextBlock Style="{StaticResource CaptionTextBlockStyle}" Text="{x:Bind EstadoTexto, Mode=OneWay}" />
+                                            CornerRadius="4">
+                                            <TextBlock FontSize="11" Text="{x:Bind EstadoTexto, Mode=OneWay}" />
                                         </Border>
+                                        <Button
+                                            Padding="8,2"
+                                            Click="Aceptar_Click"
+                                            Content="Aceptar"
+                                            Style="{StaticResource AccentButtonStyle}"
+                                            Visibility="{x:Bind EstaPendiente, Mode=OneWay}" />
+                                        <Button
+                                            Padding="8,2"
+                                            Click="Denegar_Click"
+                                            Content="Denegar"
+                                            Visibility="{x:Bind EstaPendiente, Mode=OneWay}" />
+                                    </StackPanel>
+                                    <StackPanel
+                                        HorizontalAlignment="Right"
+                                        VerticalAlignment="Bottom"
+                                        Orientation="Horizontal"
+                                        Spacing="6">
+                                        <Button
+                                            Padding="8,2"
+                                            Click="PdfClinica_Click"
+                                            Content="PDF"
+                                            ToolTipService.ToolTip="Orden de Salida en A4" />
+                                        <Button
+                                            Padding="8,2"
+                                            Click="PdfClinicaA5_Click"
+                                            Content="PDF A5"
+                                            ToolTipService.ToolTip="Orden de Salida en A5" />
                                     </StackPanel>
                                 </Grid>
-
-                                <TextBlock
-                                    Grid.Row="1"
-                                    Opacity="0.85"
-                                    Text="{x:Bind Resumen}" />
-                                <TextBlock
-                                    Grid.Row="2"
-                                    Opacity="0.72"
-                                    Style="{StaticResource CaptionTextBlockStyle}"
-                                    Text="{x:Bind Detalle}"
-                                    TextWrapping="Wrap" />
-                                <TextBlock
-                                    Grid.Row="3"
-                                    Opacity="0.8"
-                                    Style="{StaticResource CaptionTextBlockStyle}"
-                                    Text="{x:Bind ResumenRespuesta, Mode=OneWay}"
-                                    TextWrapping="Wrap"
-                                    Visibility="{x:Bind EstaRespondida, Mode=OneWay}" />
-
-                                <StackPanel
-                                    Grid.Row="4"
-                                    Orientation="Horizontal"
-                                    Spacing="8"
-                                    Visibility="{x:Bind EstaPendiente, Mode=OneWay}">
-                                    <Button
-                                        Click="Aceptar_Click"
-                                        Content="Aceptar"
-                                        Style="{StaticResource AccentButtonStyle}" />
-                                    <Button Click="Denegar_Click" Content="Denegar" />
-                                </StackPanel>
-                            </Grid>
+                            </StackPanel>
                         </Border>
                     </DataTemplate>
                 </ListView.ItemTemplate>
@@ -159,6 +173,200 @@
                 Opacity="0.7"
                 Text="Aún no hay notificaciones de la clínica."
                 Visibility="Collapsed" />
+            </Grid>
+            </Grid>
+
+            <Grid Grid.Column="1" RowSpacing="8">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+            <Grid ColumnSpacing="6">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBlock
+                    VerticalAlignment="Center"
+                    Style="{StaticResource BodyStrongTextBlockStyle}"
+                    Text="Reportes de incidencias"
+                    TextTrimming="CharacterEllipsis" />
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4">
+                    <Button Padding="8,2" Click="ExportarIncidenciasExcel_Click" Content="Excel" />
+                    <Button Padding="8,2" Click="ExportarIncidenciasPdf_Click" Content="PDF" />
+                </StackPanel>
+            </Grid>
+
+            <Grid Grid.Row="1">
+                <ListView
+                    x:Name="ListaIncidencias"
+                    SelectionMode="None">
+                    <ListView.ItemContainerStyle>
+                        <Style TargetType="ListViewItem">
+                            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                            <Setter Property="MinHeight" Value="0" />
+                            <Setter Property="Padding" Value="0,1,0,1" />
+                        </Style>
+                    </ListView.ItemContainerStyle>
+                    <ListView.ItemTemplate>
+                        <DataTemplate x:DataType="models:SolicitudIncidencia">
+                            <Border
+                                Padding="10,6"
+                                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                BorderThickness="1"
+                                CornerRadius="6">
+                                <StackPanel Spacing="6">
+                                    <StackPanel Spacing="0">
+                                        <TextBlock Style="{StaticResource CaptionTextBlockStyle}" FontWeight="SemiBold" Text="{x:Bind Folio}" />
+                                        <TextBlock Opacity="0.65" Style="{StaticResource CaptionTextBlockStyle}" Text="{x:Bind FechaTexto}" />
+                                        <TextBlock
+                                            Opacity="0.85"
+                                            Style="{StaticResource CaptionTextBlockStyle}"
+                                            Text="{x:Bind Resumen}"
+                                            TextWrapping="Wrap" />
+                                        <TextBlock
+                                            Opacity="0.72"
+                                            Style="{StaticResource CaptionTextBlockStyle}"
+                                            Text="{x:Bind Detalle}"
+                                            TextWrapping="Wrap" />
+                                        <TextBlock
+                                            Opacity="0.8"
+                                            Style="{StaticResource CaptionTextBlockStyle}"
+                                            Text="{x:Bind ResumenRespuesta, Mode=OneWay}"
+                                            TextWrapping="Wrap" />
+                                    </StackPanel>
+                                    <StackPanel
+                                        HorizontalAlignment="Left"
+                                        Orientation="Horizontal"
+                                        Spacing="6">
+                                        <Border
+                                            Padding="6,1"
+                                            Background="{ThemeResource SystemFillColorCautionBackgroundBrush}"
+                                            CornerRadius="4"
+                                            Visibility="{x:Bind Urgente}">
+                                            <TextBlock FontSize="11" Text="Urgente" />
+                                        </Border>
+                                        <Border
+                                            Padding="6,1"
+                                            Background="{ThemeResource SubtleFillColorSecondaryBrush}"
+                                            CornerRadius="4">
+                                            <TextBlock FontSize="11" Text="{x:Bind EstadoTexto, Mode=OneWay}" />
+                                        </Border>
+                                        <Button
+                                            Padding="8,2"
+                                            Click="AceptarIncidencia_Click"
+                                            Content="Aceptar"
+                                            Style="{StaticResource AccentButtonStyle}"
+                                            Visibility="{x:Bind EstaPendiente, Mode=OneWay}" />
+                                        <Button
+                                            Padding="8,2"
+                                            Click="DenegarIncidencia_Click"
+                                            Content="Denegar"
+                                            Visibility="{x:Bind EstaPendiente, Mode=OneWay}" />
+                                        <Button
+                                            Padding="8,2"
+                                            Click="AgregarOrden_Click"
+                                            Content="Agregar a orden"
+                                            Visibility="{x:Bind PuedeAgregarOrden, Mode=OneWay}" />
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
+                        </DataTemplate>
+                    </ListView.ItemTemplate>
+                </ListView>
+                <TextBlock
+                    x:Name="TextoVacioIncidencias"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center"
+                    Opacity="0.7"
+                    Text="Aún no hay reportes de incidencias."
+                    Visibility="Collapsed" />
+            </Grid>
+            </Grid>
+
+            <Grid Grid.Column="2" RowSpacing="8">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+            <Grid ColumnSpacing="6">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBlock
+                    VerticalAlignment="Center"
+                    Style="{StaticResource BodyStrongTextBlockStyle}"
+                    Text="Autorizaciones de base de datos"
+                    TextTrimming="CharacterEllipsis" />
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4">
+                    <Button Padding="8,2" Click="ExportarAutorizacionesExcel_Click" Content="Excel" />
+                    <Button Padding="8,2" Click="ExportarAutorizacionesPdf_Click" Content="PDF" />
+                </StackPanel>
+            </Grid>
+
+            <Grid Grid.Row="1">
+                <ListView
+                    x:Name="ListaAutorizaciones"
+                    SelectionMode="None">
+                    <ListView.ItemContainerStyle>
+                        <Style TargetType="ListViewItem">
+                            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                            <Setter Property="MinHeight" Value="0" />
+                            <Setter Property="Padding" Value="0,1,0,1" />
+                        </Style>
+                    </ListView.ItemContainerStyle>
+                    <ListView.ItemTemplate>
+                        <DataTemplate x:DataType="models:AvisoAutorizacion">
+                            <Border
+                                Padding="10,6"
+                                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                BorderThickness="1"
+                                CornerRadius="6">
+                                <StackPanel Spacing="6">
+                                    <StackPanel Spacing="0">
+                                        <TextBlock Style="{StaticResource CaptionTextBlockStyle}" FontWeight="SemiBold" Text="{x:Bind Folio}" />
+                                        <TextBlock Opacity="0.65" Style="{StaticResource CaptionTextBlockStyle}" Text="{x:Bind FechaTexto}" />
+                                        <TextBlock Opacity="0.85" Style="{StaticResource CaptionTextBlockStyle}" Text="Borrado de inventario" />
+                                        <TextBlock
+                                            Opacity="0.85"
+                                            Style="{StaticResource CaptionTextBlockStyle}"
+                                            Text="{x:Bind Resumen}"
+                                            TextWrapping="Wrap" />
+                                        <TextBlock
+                                            Opacity="0.72"
+                                            Style="{StaticResource CaptionTextBlockStyle}"
+                                            Text="{x:Bind Detalle}"
+                                            TextWrapping="Wrap" />
+                                        <TextBlock
+                                            Opacity="0.8"
+                                            Style="{StaticResource CaptionTextBlockStyle}"
+                                            Text="{x:Bind Respuesta}"
+                                            TextWrapping="Wrap" />
+                                    </StackPanel>
+                                    <Border
+                                        Padding="6,1"
+                                        HorizontalAlignment="Left"
+                                        Background="{ThemeResource SubtleFillColorSecondaryBrush}"
+                                        CornerRadius="4">
+                                        <TextBlock FontSize="11" Text="{x:Bind EstadoTexto}" />
+                                    </Border>
+                                </StackPanel>
+                            </Border>
+                        </DataTemplate>
+                    </ListView.ItemTemplate>
+                </ListView>
+                <TextBlock
+                    x:Name="TextoVacioAutorizaciones"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center"
+                    Opacity="0.7"
+                    Text="Aún no hay autorizaciones de base de datos."
+                    Visibility="Collapsed" />
+            </Grid>
+            </Grid>
         </Grid>
     </Grid>
 </Page>

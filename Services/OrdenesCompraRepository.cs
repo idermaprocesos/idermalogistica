@@ -70,6 +70,34 @@ public sealed class OrdenesCompraRepository
         }
     }
 
+    public string SiguienteCorrelativo(int anio, Guid? excluirId = null)
+    {
+        lock (_candado)
+        {
+            var maximo = 0;
+            foreach (var orden in _ordenes)
+            {
+                if (excluirId is Guid id && orden.Id == id)
+                {
+                    continue;
+                }
+
+                if (!CalculoOrdenCompra.TryParseCorrelativo(orden.Documento?.Correlativo, out var anioOrden, out var numero)
+                    || anioOrden != anio)
+                {
+                    continue;
+                }
+
+                if (numero > maximo)
+                {
+                    maximo = numero;
+                }
+            }
+
+            return CalculoOrdenCompra.FormatearCorrelativo(anio, maximo + 1);
+        }
+    }
+
     public void Guardar(OrdenCompraRegistrada orden)
     {
         lock (_candado)

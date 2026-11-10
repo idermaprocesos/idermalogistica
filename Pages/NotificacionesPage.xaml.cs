@@ -8,7 +8,7 @@ namespace IdermaFichas.Pages;
 
 public sealed partial class NotificacionesPage : Page, IVistaInventario
 {
-    private readonly List<string> _estados = ["Todas", "Pendiente", "Aceptada", "Denegada"];
+    private readonly List<string> _estados = ["Todas", "Pendiente", "Aceptada", "Cantidad acordada", "Denegada"];
 
     public NotificacionesPage()
     {
@@ -16,12 +16,21 @@ public sealed partial class NotificacionesPage : Page, IVistaInventario
         ComboEstado.ItemsSource = _estados;
         ComboEstado.SelectedIndex = 0;
         SolicitudesClinicaNube.Cambiado += Refrescar;
+        SolicitudesIncidenciasNube.Cambiado += Refrescar;
+        AprobacionBorradoInventario.Cambiado += Refrescar;
         Loaded += (_, _) =>
         {
             SolicitudesClinicaNube.Iniciar(DispatcherQueue);
+            SolicitudesIncidenciasNube.Iniciar(DispatcherQueue);
+            AprobacionBorradoInventario.Iniciar(DispatcherQueue);
             Refrescar();
         };
-        Unloaded += (_, _) => SolicitudesClinicaNube.Cambiado -= Refrescar;
+        Unloaded += (_, _) =>
+        {
+            SolicitudesClinicaNube.Cambiado -= Refrescar;
+            SolicitudesIncidenciasNube.Cambiado -= Refrescar;
+            AprobacionBorradoInventario.Cambiado -= Refrescar;
+        };
     }
 
     public void AplicarCambioInventario() => Refrescar();
@@ -49,10 +58,41 @@ public sealed partial class NotificacionesPage : Page, IVistaInventario
         ListaNotificaciones.ItemsSource = null;
         ListaNotificaciones.ItemsSource = vista;
         TextoVacio.Visibility = vista.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
-        var pendientes = SolicitudesClinicaNube.Pendientes;
+
+        var incidencias = SolicitudesIncidenciasNube.Items
+            .Where(s => estado == "Todas" || s.EstadoTexto.Equals(estado, StringComparison.OrdinalIgnoreCase))
+            .Where(s => string.IsNullOrWhiteSpace(filtro) ||
+                        Contiene(s.Folio, filtro) ||
+                        Contiene(s.Solicitante, filtro) ||
+                        Contiene(s.Nombre, filtro) ||
+                        Contiene(s.Detalle, filtro) ||
+                        Contiene(s.Motivo, filtro))
+            .ToList();
+        ListaIncidencias.ItemsSource = null;
+        ListaIncidencias.ItemsSource = incidencias;
+        TextoVacioIncidencias.Visibility = incidencias.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+
+        var autorizaciones = AprobacionBorradoInventario.Items
+            .Where(a => CoincideEstado(estado, a))
+            .Where(a => string.IsNullOrWhiteSpace(filtro) ||
+                        Contiene(a.Folio, filtro) ||
+                        Contiene(a.Solicitante, filtro) ||
+                        Contiene(a.Detalle, filtro) ||
+                        Contiene(a.Respuesta, filtro))
+            .ToList();
+        ListaAutorizaciones.ItemsSource = null;
+        ListaAutorizaciones.ItemsSource = autorizaciones;
+        TextoVacioAutorizaciones.Visibility = autorizaciones.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+
+        var pendientes = SolicitudesClinicaNube.Pendientes
+            + SolicitudesIncidenciasNube.Pendientes
+            + AprobacionBorradoInventario.Pendientes;
+        var total = SolicitudesClinicaNube.Items.Count
+            + SolicitudesIncidenciasNube.Items.Count
+            + AprobacionBorradoInventario.Items.Count;
         TextoConteo.Text = pendientes == 0
-            ? $"{SolicitudesClinicaNube.Items.Count} notificaciones · {SolicitudesClinicaNube.Estado}"
-            : $"{SolicitudesClinicaNube.Items.Count} notificaciones · {pendientes} pendientes · {SolicitudesClinicaNube.Estado}";
+            ? $"{total} notificaciones · {SolicitudesClinicaNube.Estado}"
+            : $"{total} notificaciones · {pendientes} pendientes · {SolicitudesClinicaNube.Estado}";
     }
 
     private void CajaBusqueda_TextChanged(object sender, TextChangedEventArgs e) => Refrescar();
@@ -61,31 +101,48 @@ public sealed partial class NotificacionesPage : Page, IVistaInventario
 
     private async void Aceptar_Click(object sender, RoutedEventArgs e)
     {
-        if (sender is not Button { DataContext: SolicitudClinica solicitud })
+        if (sender is Button { DataContext: SolicitudClinica solicitud })
         {
-            return;
+            await ResponderAsync(solicitud);
         }
+    }
 
-        var dialogo = new ContentDialog
+    private async void Denegar_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button { DataContext: SolicitudClinica solicitud })
         {
-            Title = "Aceptar solicitud",
-            Content = $"¿Aceptar {solicitud.Folio} de {solicitud.Enfermera}? Se registrará la salida de los productos en Registro.",
-            PrimaryButtonText = "Aceptar y registrar salida",
-            CloseButtonText = "Cancelar",
-            DefaultButton = ContentDialogButton.Primary,
-            XamlRoot = XamlRoot
-        };
+            await ResponderAsync(solicitud);
+        }
+    }
 
-        if (await dialogo.ShowAsync() != ContentDialogResult.Primary)
+    private async Task ResponderAsync(SolicitudClinica solicitud)
+    {
+        var resultado = await DialogoRespuestaSolicitud.MostrarAsync(XamlRoot, solicitud);
+        if (resultado is null)
         {
             return;
         }
 
         try
         {
-            var resumen = await SolicitudesClinicaNube.AceptarAsync(solicitud);
+            if (resultado.Decision == DecisionRespuestaSolicitud.Denegar)
+            {
+                await SolicitudesClinicaNube.DenegarAsync(solicitud, resultado.Motivo, resultado.Cantidades);
+                Refrescar();
+                Mostrar("Solicitud denegada.", InfoBarSeverity.Informational);
+                return;
+            }
+
+            var acordada = resultado.Decision == DecisionRespuestaSolicitud.CantidadAcordada;
+            var resumen = await SolicitudesClinicaNube.AceptarAsync(
+                solicitud,
+                resultado.Cantidades,
+                acordada,
+                resultado.Motivo);
             Refrescar();
-            Mostrar("Solicitud aceptada. " + resumen, InfoBarSeverity.Success);
+            Mostrar(
+                acordada ? "Solicitud aceptada con cantidad acordada. " + resumen : "Solicitud aceptada. " + resumen,
+                InfoBarSeverity.Success);
         }
         catch (Exception ex)
         {
@@ -93,32 +150,56 @@ public sealed partial class NotificacionesPage : Page, IVistaInventario
         }
     }
 
-    private async void Denegar_Click(object sender, RoutedEventArgs e)
+    private async void AceptarIncidencia_Click(object sender, RoutedEventArgs e)
     {
-        if (sender is not Button { DataContext: SolicitudClinica solicitud })
+        if (sender is not Button { DataContext: SolicitudIncidencia solicitud })
         {
             return;
         }
 
-        var motivo = new TextBox
-        {
-            PlaceholderText = "Escribe el motivo de la denegación",
-            AcceptsReturn = true,
-            TextWrapping = TextWrapping.Wrap,
-            MinHeight = 100,
-            MaxLength = 500
-        };
-
         var dialogo = new ContentDialog
         {
-            Title = $"Denegar {solicitud.Folio}",
+            Title = "Aceptar reporte",
+            Content = $"¿Aceptar {solicitud.Folio}? Después puede agregarlo a una orden de compra.",
+            PrimaryButtonText = "Aceptar",
+            CloseButtonText = "Cancelar",
+            DefaultButton = ContentDialogButton.Primary,
+            XamlRoot = XamlRoot
+        };
+        if (await dialogo.ShowAsync() != ContentDialogResult.Primary)
+        {
+            return;
+        }
+
+        try
+        {
+            await SolicitudesIncidenciasNube.AceptarAsync(solicitud);
+            Refrescar();
+            Mostrar("Reporte aceptado.", InfoBarSeverity.Success);
+        }
+        catch (Exception ex)
+        {
+            Mostrar(ex.Message, InfoBarSeverity.Error);
+        }
+    }
+
+    private async void DenegarIncidencia_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { DataContext: SolicitudIncidencia solicitud })
+        {
+            return;
+        }
+
+        var motivo = new TextBox { PlaceholderText = "Motivo de la denegación", AcceptsReturn = true, Height = 80 };
+        var dialogo = new ContentDialog
+        {
+            Title = "Denegar reporte",
             Content = motivo,
             PrimaryButtonText = "Denegar",
             CloseButtonText = "Cancelar",
             DefaultButton = ContentDialogButton.Close,
             XamlRoot = XamlRoot
         };
-
         if (await dialogo.ShowAsync() != ContentDialogResult.Primary)
         {
             return;
@@ -126,9 +207,9 @@ public sealed partial class NotificacionesPage : Page, IVistaInventario
 
         try
         {
-            await SolicitudesClinicaNube.DenegarAsync(solicitud, motivo.Text);
+            await SolicitudesIncidenciasNube.DenegarAsync(solicitud, motivo.Text ?? string.Empty);
             Refrescar();
-            Mostrar("Solicitud denegada.", InfoBarSeverity.Informational);
+            Mostrar("Reporte denegado.", InfoBarSeverity.Informational);
         }
         catch (Exception ex)
         {
@@ -136,42 +217,199 @@ public sealed partial class NotificacionesPage : Page, IVistaInventario
         }
     }
 
-    private async void ExportarExcel_Click(object sender, RoutedEventArgs e) =>
-        await ExportarAsync(soloExcel: true);
-
-    private async void ExportarPdf_Click(object sender, RoutedEventArgs e) =>
-        await ExportarAsync(soloPdf: true);
-
-    private async Task ExportarAsync(bool soloExcel = false, bool soloPdf = false)
+    private async void AgregarOrden_Click(object sender, RoutedEventArgs e)
     {
-        var lista = (ListaNotificaciones.ItemsSource as IEnumerable<SolicitudClinica>)?.ToList()
-            ?? SolicitudesClinicaNube.Items.ToList();
-        if (lista.Count == 0)
+        if (sender is not Button { DataContext: SolicitudIncidencia solicitud })
         {
-            Mostrar("No hay notificaciones para exportar.", InfoBarSeverity.Warning);
+            return;
+        }
+
+        var borradores = App.Instance.OrdenesCompra.Listar()
+            .Where(o => (o.Documento?.Estado ?? string.Empty).Equals("Borrador", StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        var opciones = new List<string> { "Nueva orden en borrador" };
+        opciones.AddRange(borradores.Select(o =>
+        {
+            var mes = string.IsNullOrWhiteSpace(o.Documento?.MesAnio) ? "sin mes" : o.Documento!.MesAnio.Trim();
+            var productos = o.Documento?.Lineas.Count ?? 0;
+            return $"{mes} · {productos} productos · {o.FechaRegistro.ToLocalTime():dd/MM/yyyy}";
+        }));
+        var combo = new ComboBox
+        {
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            ItemsSource = opciones,
+            SelectedIndex = 0
+        };
+        var dialogo = new ContentDialog
+        {
+            Title = "Agregar a orden de compra",
+            Content = new StackPanel
+            {
+                Spacing = 8,
+                Children =
+                {
+                    new TextBlock
+                    {
+                        Text = $"{solicitud.Nombre} se suma a la orden elegida. Si ya está, aumenta la cantidad.",
+                        TextWrapping = TextWrapping.Wrap
+                    },
+                    combo
+                }
+            },
+            PrimaryButtonText = "Agregar",
+            CloseButtonText = "Cancelar",
+            DefaultButton = ContentDialogButton.Primary,
+            XamlRoot = XamlRoot
+        };
+        if (await dialogo.ShowAsync() != ContentDialogResult.Primary)
+        {
+            return;
+        }
+
+        var linea = OrdenCompraArmado.ParaIncidencia(solicitud);
+        OrdenCompraEdicion edicion;
+        if (combo.SelectedIndex > 0 && borradores[combo.SelectedIndex - 1].Documento is { } documento)
+        {
+            var orden = borradores[combo.SelectedIndex - 1];
+            var lineas = documento.Lineas.Select(OrdenCompraArmado.DesdeGuardada).ToList();
+            OrdenCompraArmado.Incorporar(lineas, linea);
+            edicion = new OrdenCompraEdicion
+            {
+                Id = orden.Id,
+                FechaRegistro = orden.FechaRegistro,
+                Documento = orden.Documento,
+                Lineas = lineas
+            };
+        }
+        else
+        {
+            edicion = new OrdenCompraEdicion
+            {
+                Lineas = [linea]
+            };
+        }
+
+        try
+        {
+            await SolicitudesIncidenciasNube.VincularOrdenAsync(
+                solicitud.Id,
+                edicion.Id,
+                edicion.Documento?.Estado ?? "Borrador");
+        }
+        catch (Exception ex)
+        {
+            Mostrar(ex.Message, InfoBarSeverity.Error);
+            return;
+        }
+
+        Frame.Navigate(typeof(OrdenCompraWindow), edicion);
+    }
+
+    private async void PdfClinica_Click(object sender, RoutedEventArgs e) =>
+        await GenerarOrdenSalidaAsync(sender, a5: false);
+
+    private async void PdfClinicaA5_Click(object sender, RoutedEventArgs e) =>
+        await GenerarOrdenSalidaAsync(sender, a5: true);
+
+    private async Task GenerarOrdenSalidaAsync(object sender, bool a5)
+    {
+        if (sender is not Button { DataContext: SolicitudClinica solicitud })
+        {
             return;
         }
 
         try
         {
-            ResultadoExportacion? resultado;
-            if (soloExcel)
+            var folio = string.IsNullOrWhiteSpace(solicitud.Folio) ? "solicitud" : solicitud.Folio.Trim();
+            var tamano = a5 ? "a5" : "a4";
+            var resultado = await ExcelUi.GuardarPdfAsync(
+                $"orden-salida-{tamano}-{folio}-{DateTime.Now:yyyyMMdd}",
+                ruta => SolicitudesExportService.ExportarPdfIndividual(ruta, solicitud, a5));
+            if (resultado is not null)
             {
-                resultado = await ExcelUi.GuardarExcelAsync(
-                    $"notificaciones-clinica-{DateTime.Now:yyyyMMdd}",
-                    ruta => SolicitudesExportService.ExportarExcel(ruta, lista));
+                await ExcelUi.OfrecerAbrirAsync(XamlRoot, resultado);
             }
-            else if (soloPdf)
-            {
-                resultado = await ExcelUi.GuardarPdfAsync(
-                    $"notificaciones-clinica-{DateTime.Now:yyyyMMdd}",
-                    ruta => SolicitudesExportService.ExportarPdf(ruta, lista));
-            }
-            else
-            {
-                return;
-            }
+        }
+        catch (Exception ex)
+        {
+            Mostrar("No se pudo generar el PDF: " + ex.Message, InfoBarSeverity.Error);
+        }
+    }
 
+    private async void ExportarClinicaExcel_Click(object sender, RoutedEventArgs e) =>
+        await ExportarListaAsync(
+            "solicitudes de clínica",
+            $"notificaciones-clinica-{DateTime.Now:yyyyMMdd}",
+            true,
+            ListaNotificaciones.ItemsSource as IEnumerable<SolicitudClinica>,
+            SolicitudesExportService.ExportarExcel,
+            SolicitudesExportService.ExportarPdf);
+
+    private async void ExportarClinicaPdf_Click(object sender, RoutedEventArgs e) =>
+        await ExportarListaAsync(
+            "solicitudes de clínica",
+            $"notificaciones-clinica-{DateTime.Now:yyyyMMdd}",
+            false,
+            ListaNotificaciones.ItemsSource as IEnumerable<SolicitudClinica>,
+            SolicitudesExportService.ExportarExcel,
+            SolicitudesExportService.ExportarPdf);
+
+    private async void ExportarIncidenciasExcel_Click(object sender, RoutedEventArgs e) =>
+        await ExportarListaAsync(
+            "incidencias",
+            $"notificaciones-incidencias-{DateTime.Now:yyyyMMdd}",
+            true,
+            ListaIncidencias.ItemsSource as IEnumerable<SolicitudIncidencia>,
+            SolicitudesExportService.ExportarExcel,
+            SolicitudesExportService.ExportarPdf);
+
+    private async void ExportarIncidenciasPdf_Click(object sender, RoutedEventArgs e) =>
+        await ExportarListaAsync(
+            "incidencias",
+            $"notificaciones-incidencias-{DateTime.Now:yyyyMMdd}",
+            false,
+            ListaIncidencias.ItemsSource as IEnumerable<SolicitudIncidencia>,
+            SolicitudesExportService.ExportarExcel,
+            SolicitudesExportService.ExportarPdf);
+
+    private async void ExportarAutorizacionesExcel_Click(object sender, RoutedEventArgs e) =>
+        await ExportarListaAsync(
+            "autorizaciones de base de datos",
+            $"notificaciones-autorizaciones-{DateTime.Now:yyyyMMdd}",
+            true,
+            ListaAutorizaciones.ItemsSource as IEnumerable<AvisoAutorizacion>,
+            SolicitudesExportService.ExportarExcel,
+            SolicitudesExportService.ExportarPdf);
+
+    private async void ExportarAutorizacionesPdf_Click(object sender, RoutedEventArgs e) =>
+        await ExportarListaAsync(
+            "autorizaciones de base de datos",
+            $"notificaciones-autorizaciones-{DateTime.Now:yyyyMMdd}",
+            false,
+            ListaAutorizaciones.ItemsSource as IEnumerable<AvisoAutorizacion>,
+            SolicitudesExportService.ExportarExcel,
+            SolicitudesExportService.ExportarPdf);
+
+    private async Task ExportarListaAsync<T>(
+        string nombre,
+        string archivo,
+        bool excel,
+        IEnumerable<T>? origen,
+        Action<string, IReadOnlyList<T>> escribirExcel,
+        Action<string, IReadOnlyList<T>> escribirPdf)
+    {
+        var lista = origen?.ToList() ?? [];
+        if (lista.Count == 0)
+        {
+            Mostrar($"No hay {nombre} para exportar.", InfoBarSeverity.Warning);
+            return;
+        }
+
+        try
+        {
+            var resultado = excel
+                ? await ExcelUi.GuardarExcelAsync(archivo, ruta => escribirExcel(ruta, lista))
+                : await ExcelUi.GuardarPdfAsync(archivo, ruta => escribirPdf(ruta, lista));
             if (resultado is not null)
             {
                 await ExcelUi.OfrecerAbrirAsync(XamlRoot, resultado);
@@ -190,6 +428,15 @@ public sealed partial class NotificacionesPage : Page, IVistaInventario
         BarraEstado.Severity = severidad;
         BarraEstado.IsOpen = true;
     }
+
+    private static bool CoincideEstado(string estado, AvisoAutorizacion aviso) => estado switch
+    {
+        "Todas" => true,
+        "Pendiente" => aviso.EstaPendiente,
+        "Denegada" => aviso.EstadoTexto.Equals("Denegada", StringComparison.OrdinalIgnoreCase),
+        "Aceptada" => aviso.EstadoTexto.Equals("Autorizada", StringComparison.OrdinalIgnoreCase),
+        _ => false
+    };
 
     private static bool Contiene(string? texto, string filtro) =>
         !string.IsNullOrWhiteSpace(texto) &&

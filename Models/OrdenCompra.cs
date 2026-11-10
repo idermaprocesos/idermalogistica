@@ -13,6 +13,24 @@ public static class CalculoOrdenCompra
 
     public static readonly string[] TiposPrecio = ["Contrato", "Promoción", "Estimado"];
     public static readonly string[] EstadosDocumento = ["Borrador", "En revisión", "Aprobada"];
+    public static readonly string[] OpcionesFlete = ["Incluido", "No incluido"];
+    public static readonly string[] CondicionesPago =
+    [
+        "Al contado",
+        "Crédito a 7 días",
+        "Crédito a 30 días",
+        "Crédito a 60 días"
+    ];
+    public const string LugarEntrega =
+        "CALLE MARTIR JOSE OLAYA NRO. 129, PISO 19 OF 1904- MIRAFLORES - LIMA";
+
+    public static string NormalizarCondicionPago(string? valor)
+    {
+        var limpio = (valor ?? string.Empty).Trim();
+        return CondicionesPago.FirstOrDefault(c =>
+                   string.Equals(c, limpio, StringComparison.OrdinalIgnoreCase))
+               ?? CondicionesPago[0];
+    }
 
     /// <summary>
     /// El último precio registrado se toma con IGV incluido.
@@ -68,6 +86,27 @@ public static class CalculoOrdenCompra
         var divisor = meses.Count > 0 ? meses.Count : 12;
         return Redondear(salidas.Sum(m => m.Cantidad) / divisor);
     }
+
+    public static string FormatearCorrelativo(int anio, int numero) =>
+        $"OC-{anio}-{Math.Max(1, numero).ToString("D3", CultureInfo.InvariantCulture)}";
+
+    public static bool TryParseCorrelativo(string? valor, out int anio, out int numero)
+    {
+        anio = 0;
+        numero = 0;
+        if (string.IsNullOrWhiteSpace(valor))
+        {
+            return false;
+        }
+
+        var partes = valor.Trim().Split('-', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        return partes.Length == 3
+            && partes[0].Equals("OC", StringComparison.OrdinalIgnoreCase)
+            && int.TryParse(partes[1], NumberStyles.None, CultureInfo.InvariantCulture, out anio)
+            && anio is >= 2000 and <= 2100
+            && int.TryParse(partes[2], NumberStyles.None, CultureInfo.InvariantCulture, out numero)
+            && numero > 0;
+    }
 }
 
 public sealed class LineaOrdenCompra : INotifyPropertyChanged
@@ -81,6 +120,7 @@ public sealed class LineaOrdenCompra : INotifyPropertyChanged
     public string Nombre { get; init; } = string.Empty;
     public string Marca { get; init; } = string.Empty;
     public string Proveedor { get; init; } = string.Empty;
+    public string Ruc { get; set; } = string.Empty;
     public string Unidad { get; init; } = string.Empty;
     public double ConsumoPromedio { get; init; }
     public double StockActual { get; init; }
@@ -151,6 +191,7 @@ public sealed class LineaOrdenCompra : INotifyPropertyChanged
     public string TextoUnidad => string.IsNullOrWhiteSpace(Unidad) ? "und" : Unidad.Trim();
     public string TextoMarca => TextoOGuion(Marca);
     public string TextoProveedor => TextoOGuion(Proveedor);
+    public string TextoRuc => TextoOGuion(Ruc);
     public string TextoUltimo => TienePrecio ? MonedaPrecio.Formato(PrecioConIgv, Moneda) : "Sin precio";
     public string TextoSinIgv => TienePrecio ? MonedaPrecio.Formato(ImporteSinIgv, Moneda) : "—";
     public string TextoIgv => TienePrecio ? MonedaPrecio.Formato(ImporteIgv, Moneda) : "—";
@@ -166,6 +207,7 @@ public sealed class LineaOrdenCompra : INotifyPropertyChanged
         string.IsNullOrWhiteSpace(Nombre) ? "—" : Nombre.Trim(),
         TextoMarca,
         TextoProveedor,
+        TextoRuc,
         ConsumoPromedio,
         StockActual,
         CantidadPedir,
@@ -176,7 +218,10 @@ public sealed class LineaOrdenCompra : INotifyPropertyChanged
         TipoPrecio,
         TextoEstado,
         TienePrecio,
-        MonedaPrecio.Normalizar(Moneda));
+        MonedaPrecio.Normalizar(Moneda))
+    {
+        FichaId = FichaId
+    };
 
     private void OnPropertyChanged([CallerMemberName] string? nombre = null) =>
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nombre));
@@ -190,6 +235,7 @@ public sealed record LineaOrdenExportacion(
     string Nombre,
     string Marca,
     string Proveedor,
+    string Ruc,
     double ConsumoPromedio,
     double StockActual,
     double CantidadPedir,
@@ -200,18 +246,86 @@ public sealed record LineaOrdenExportacion(
     string TipoPrecio,
     string Estado,
     bool TienePrecio,
-    string Moneda);
+    string Moneda)
+{
+    public Guid FichaId { get; init; }
+}
 
 public sealed class OrdenCompraDocumento
 {
     public string CodigoFormato { get; init; } = CalculoOrdenCompra.CodigoFormato;
+    public string Correlativo { get; init; } = string.Empty;
     public string MesAnio { get; init; } = string.Empty;
     public string FechaElaboracion { get; init; } = string.Empty;
     public string ElaboradoPor { get; init; } = string.Empty;
     public string RevisadoPor { get; init; } = string.Empty;
     public string PeriodoCobertura { get; init; } = string.Empty;
     public string Estado { get; init; } = "Borrador";
+    public string FletePrecio { get; init; } = string.Empty;
+    public string FleteEstado { get; init; } = "No incluido";
+    public string CondicionPago { get; init; } = CalculoOrdenCompra.CondicionesPago[0];
+    public string BancoProveedor { get; init; } = string.Empty;
+    public string NumeroCuentaProveedor { get; init; } = string.Empty;
+    public string CciProveedor { get; init; } = string.Empty;
+    public string LugarEntrega { get; init; } = CalculoOrdenCompra.LugarEntrega;
     public List<LineaOrdenExportacion> Lineas { get; init; } = [];
+
+    public string TituloImpresion
+    {
+        get
+        {
+            var fecha = string.IsNullOrWhiteSpace(FechaElaboracion)
+                ? DateTime.Today.ToString("dd/MM/yyyy")
+                : FechaElaboracion.Trim();
+            return $"ORDEN DE COMPRA {fecha}";
+        }
+    }
+
+    public string ProveedorUnico
+    {
+        get
+        {
+            var proveedor = Lineas
+                .Select(l => l.Proveedor?.Trim())
+                .FirstOrDefault(p => !string.IsNullOrWhiteSpace(p) && p != "—");
+            return string.IsNullOrWhiteSpace(proveedor) ? "—" : proveedor;
+        }
+    }
+
+    public string RucUnico
+    {
+        get
+        {
+            var ruc = Lineas
+                .Select(l => l.Ruc?.Trim())
+                .FirstOrDefault(p => !string.IsNullOrWhiteSpace(p) && p != "—");
+            return string.IsNullOrWhiteSpace(ruc) ? "—" : ruc;
+        }
+    }
+
+    public bool FleteIncluido =>
+        !string.IsNullOrWhiteSpace(FleteEstado)
+        && FleteEstado.Trim().Equals("Incluido", StringComparison.OrdinalIgnoreCase);
+
+    public double? MontoFlete
+    {
+        get
+        {
+            if (string.IsNullOrWhiteSpace(FletePrecio))
+            {
+                return null;
+            }
+
+            var texto = FletePrecio.Trim();
+            if (double.TryParse(texto, NumberStyles.Number, CultureInfo.GetCultureInfo("es-PE"), out var monto)
+                || double.TryParse(texto.Replace(',', '.'), NumberStyles.Number, CultureInfo.InvariantCulture, out monto))
+            {
+                return CalculoOrdenCompra.Redondear(monto);
+            }
+
+            return null;
+        }
+    }
 
     public string TituloPrecios =>
         Lineas.Any(l => l.TienePrecio && MonedaPrecio.EsDolar(l.Moneda))

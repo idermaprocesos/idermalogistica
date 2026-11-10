@@ -26,7 +26,15 @@ public static class Catalogos
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase
     };
 
+    private static readonly object Candado = new();
+    private static int _silencio;
     private static Dictionary<string, List<string>> _listas = CrearPredeterminadas();
+
+    public static bool ArchivoExistiaAlAbrir { get; private set; }
+
+    public static event Action? Cambiaron;
+
+    public static event Action? PublicacionPedida;
 
     public static string RutaArchivo { get; } = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
@@ -69,7 +77,6 @@ public static class Catalogos
             new(Clave(areaId, CampoCategorias), "Categoría"),
             new(Clave(areaId, CampoEstados), "Estado físico"),
             new(Clave(areaId, CampoUnidades), "Unidad de medida"),
-            new(Clave(areaId, CampoPresentaciones), "Presentación"),
             new(Clave(areaId, CampoColores), "Color / apariencia"),
             new(Clave(areaId, CampoMateriales), "Material de fabricación"),
             new(Clave(areaId, CampoVidasUtil), "Vida útil"),
@@ -92,7 +99,7 @@ public static class Catalogos
         return listas;
     }
 
-    public static void CopiarListasDePlantilla(AreaOperativa plantilla, Guid destino)
+    public static void CopiarListasDePlantilla(AreaOperativa plantilla, Guid? destino)
     {
         var origenId = plantilla switch
         {
@@ -110,14 +117,29 @@ public static class Catalogos
                 valores = Copia(Clave(plantilla, campo));
             }
 
-            Reemplazar(Clave(destino, campo), valores);
+            EscribirLista(Clave(destino, campo), valores);
+        }
+
+        Publicar();
+    }
+
+    public static bool TieneListaPropia(Guid? areaId, string campo)
+    {
+        lock (Candado)
+        {
+            return _listas.TryGetValue(Clave(areaId, campo), out var lista) && lista.Count > 0;
         }
     }
 
     public static void Cargar()
     {
-        _listas = CrearPredeterminadas();
-        if (!File.Exists(RutaArchivo))
+        ArchivoExistiaAlAbrir = File.Exists(RutaArchivo);
+        lock (Candado)
+        {
+            _listas = CrearPredeterminadas();
+        }
+
+        if (!ArchivoExistiaAlAbrir)
         {
             Guardar();
             return;
@@ -130,11 +152,14 @@ public static class Catalogos
             return;
         }
 
-        foreach (var (clave, valores) in cargadas)
+        lock (Candado)
         {
-            if (valores.Count > 0)
+            foreach (var (clave, valores) in cargadas)
             {
-                _listas[clave] = [.. valores.Where(v => !string.IsNullOrWhiteSpace(v)).Distinct(StringComparer.CurrentCultureIgnoreCase)];
+                if (valores.Count > 0)
+                {
+                    _listas[clave] = [.. valores.Where(v => !string.IsNullOrWhiteSpace(v)).Distinct(StringComparer.CurrentCultureIgnoreCase)];
+                }
             }
         }
 
@@ -147,15 +172,68 @@ public static class Catalogos
 
     public static void Guardar()
     {
-        Directory.CreateDirectory(Path.GetDirectoryName(RutaArchivo)!);
-        File.WriteAllText(RutaArchivo, JsonSerializer.Serialize(_listas, JsonOptions));
+        Dictionary<string, List<string>> copia;
+        lock (Candado)
+        {
+            copia = CopiarDiccionario(_listas);
+        }
+
+        EscribirArchivo(copia);
     }
 
-    public static IReadOnlyList<string> Obtener(string clave) =>
-        _listas.TryGetValue(clave, out var lista) ? lista : [];
+    public static Dictionary<string, List<string>> Exportar()
+    {
+        lock (Candado)
+        {
+            return CopiarDiccionario(_listas);
+        }
+    }
 
-    public static IReadOnlyList<string> Obtener(Guid? areaId, string campo) =>
-        Obtener(Clave(areaId, campo));
+    public static bool DifiereDePredeterminadas()
+    {
+        lock (Candado)
+        {
+            return !MismasListas(_listas, CrearPredeterminadas());
+        }
+    }
+
+    public static void AplicarDesdeNube(IReadOnlyDictionary<string, List<string>> listas)
+    {
+        var entrantes = CopiarDiccionario(listas);
+        lock (Candado)
+        {
+            if (MismasListas(_listas, entrantes))
+            {
+                return;
+            }
+
+            _listas = entrantes;
+        }
+
+        EscribirArchivo(entrantes);
+        Cambiaron?.Invoke();
+    }
+
+    public static IReadOnlyList<string> Obtener(string clave)
+    {
+        lock (Candado)
+        {
+            return _listas.TryGetValue(clave, out var lista) ? lista : [];
+        }
+    }
+
+    public static IReadOnlyList<string> Obtener(Guid? areaId, string campo)
+    {
+        var propia = Obtener(Clave(areaId, campo));
+        if (propia.Count > 0)
+        {
+            return propia;
+        }
+
+        var plantilla = areaId is null ? AreaOperativa.Clinica : AreasOperativas.Plantilla(areaId);
+        var heredada = Obtener(Clave(plantilla, campo));
+        return heredada.Count > 0 ? heredada : propia;
+    }
 
     public static IReadOnlyList<string> Obtener(AreaOperativa plantilla, string campo) =>
         Obtener(Clave(plantilla, campo));
@@ -164,14 +242,34 @@ public static class Catalogos
 
     public static void Reemplazar(string clave, IEnumerable<string> valores)
     {
-        _listas[clave] =
-        [
-            .. valores
-                .Select(v => v.Trim())
-                .Where(v => v.Length > 0)
-                .Distinct(StringComparer.CurrentCultureIgnoreCase)
-        ];
+        EscribirLista(clave, valores);
+        Publicar();
+    }
+
+    private static void EscribirLista(string clave, IEnumerable<string> valores)
+    {
+        var limpia = valores
+            .Select(v => v.Trim())
+            .Where(v => v.Length > 0)
+            .Distinct(StringComparer.CurrentCultureIgnoreCase)
+            .ToList();
+        lock (Candado)
+        {
+            _listas[clave] = limpia;
+        }
+
         Guardar();
+    }
+
+    private static void Publicar()
+    {
+        if (Volatile.Read(ref _silencio) > 0)
+        {
+            return;
+        }
+
+        PublicacionPedida?.Invoke();
+        Cambiaron?.Invoke();
     }
 
     public static void Restaurar(string clave)
@@ -179,8 +277,13 @@ public static class Catalogos
         var originales = CrearPredeterminadas();
         if (originales.TryGetValue(clave, out var lista))
         {
-            _listas[clave] = [.. lista];
+            lock (Candado)
+            {
+                _listas[clave] = [.. lista];
+            }
+
             Guardar();
+            Publicar();
         }
     }
 
@@ -257,8 +360,54 @@ public static class Catalogos
 
         if (cargadas.TryGetValue(origen, out var valores) && valores.Count > 0)
         {
-            _listas[destino] = [.. valores];
+            lock (Candado)
+            {
+                _listas[destino] = [.. valores];
+            }
         }
+    }
+
+    private static void EscribirArchivo(Dictionary<string, List<string>> listas)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(RutaArchivo)!);
+        File.WriteAllText(RutaArchivo, JsonSerializer.Serialize(listas, JsonOptions));
+    }
+
+    private static Dictionary<string, List<string>> CopiarDiccionario(IReadOnlyDictionary<string, List<string>> origen)
+    {
+        var copia = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+        foreach (var (clave, valores) in origen)
+        {
+            copia[clave] = [.. valores];
+        }
+
+        return copia;
+    }
+
+    private static bool MismasListas(IReadOnlyDictionary<string, List<string>> actual, IReadOnlyDictionary<string, List<string>> entrante)
+    {
+        if (actual.Count != entrante.Count)
+        {
+            return false;
+        }
+
+        foreach (var (clave, valores) in entrante)
+        {
+            if (!actual.TryGetValue(clave, out var previa) || previa.Count != valores.Count)
+            {
+                return false;
+            }
+
+            for (var i = 0; i < valores.Count; i++)
+            {
+                if (!string.Equals(previa[i], valores[i], StringComparison.Ordinal))
+                {
+                    return false;
+                }
+            }
+        }
+
+        return true;
     }
 
     private static Dictionary<string, List<string>> CrearPredeterminadas()

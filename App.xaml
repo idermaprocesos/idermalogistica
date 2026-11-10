@@ -2,7 +2,8 @@
 <Application
     x:Class="IdermaFichas.App"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:helpers="using:IdermaFichas.Helpers">
     <Application.Resources>
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
@@ -22,6 +23,8 @@
             <SolidColorBrush x:Key="MarcaBrush" Color="{StaticResource MarcaColor}" />
             <SolidColorBrush x:Key="VencidoBrush" Color="{StaticResource VencidoColor}" />
             <SolidColorBrush x:Key="ProximoVencerBrush" Color="{StaticResource ProximoVencerColor}" />
+
+            <helpers:FechaCalendarioConverter x:Key="FechaCalendarioConverter" />
 
             <Style x:Key="TituloPaginaStyle" TargetType="TextBlock" BasedOn="{StaticResource TitleTextBlockStyle}">
                 <Setter Property="FontWeight" Value="SemiBold" />

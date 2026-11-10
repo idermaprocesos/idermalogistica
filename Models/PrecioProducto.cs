@@ -17,6 +17,30 @@ public static class MonedaPrecio
     public static string Normalizar(string? moneda) =>
         EsDolar(moneda) ? Dolares : Soles;
 
+    public static string Interpretar(string? texto)
+    {
+        if (string.IsNullOrWhiteSpace(texto))
+        {
+            return Soles;
+        }
+
+        var normal = texto.Trim().ToLowerInvariant()
+            .Replace("á", "a")
+            .Replace("é", "e")
+            .Replace("í", "i")
+            .Replace("ó", "o")
+            .Replace("ú", "u");
+        if (normal.Contains("dolar")
+            || normal.Contains("usd")
+            || normal.Contains("us$")
+            || normal == "$")
+        {
+            return Dolares;
+        }
+
+        return Soles;
+    }
+
     public static string Formato(double monto, string? moneda)
     {
         var cultura = EsDolar(moneda)

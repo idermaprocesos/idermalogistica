@@ -18,7 +18,7 @@
             <TextBlock
                 x:Name="Subtitulo"
                 Opacity="0.72"
-                Text="Las órdenes exportadas quedan guardadas aquí. Puede volver a descargarlas en PDF o Excel."
+                Text="Las órdenes exportadas quedan guardadas aquí. Puede generar la orden de entrada, cargarla al registro o volver a descargar PDF/Excel."
                 TextWrapping="Wrap" />
         </StackPanel>
 
@@ -55,20 +55,41 @@
                             <StackPanel
                                 Grid.Column="1"
                                 VerticalAlignment="Center"
-                                Orientation="Horizontal"
-                                Spacing="8">
-                                <Button
-                                    Click="DescargarPdf_Click"
-                                    Content="PDF"
-                                    Tag="{x:Bind IdTexto}" />
-                                <Button
-                                    Click="DescargarExcel_Click"
-                                    Content="Excel"
-                                    Tag="{x:Bind IdTexto}" />
-                                <Button
-                                    Click="Quitar_Click"
-                                    Content="Quitar"
-                                    Tag="{x:Bind IdTexto}" />
+                                Spacing="6">
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <Button
+                                        Click="OrdenEntrada_Click"
+                                        Content="Orden de entrada"
+                                        Tag="{x:Bind IdTexto}"
+                                        ToolTipService.ToolTip="Generar PDF en A4" />
+                                    <Button
+                                        Click="OrdenEntradaA5_Click"
+                                        Content="Orden de entrada A5"
+                                        Tag="{x:Bind IdTexto}"
+                                        ToolTipService.ToolTip="Generar PDF en A5" />
+                                    <Button
+                                        Click="OrdenEntradaYCargar_Click"
+                                        Content="Generar orden y cargar al sistema"
+                                        Style="{StaticResource AccentButtonStyle}"
+                                        Tag="{x:Bind IdTexto}" />
+                                </StackPanel>
+                                <StackPanel
+                                    HorizontalAlignment="Right"
+                                    Orientation="Horizontal"
+                                    Spacing="8">
+                                    <Button
+                                        Click="DescargarPdf_Click"
+                                        Content="PDF"
+                                        Tag="{x:Bind IdTexto}" />
+                                    <Button
+                                        Click="DescargarExcel_Click"
+                                        Content="Excel"
+                                        Tag="{x:Bind IdTexto}" />
+                                    <Button
+                                        Click="Quitar_Click"
+                                        Content="Quitar"
+                                        Tag="{x:Bind IdTexto}" />
+                                </StackPanel>
                             </StackPanel>
                         </Grid>
                     </DataTemplate>

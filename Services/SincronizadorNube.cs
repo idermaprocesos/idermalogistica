@@ -11,7 +11,9 @@ internal sealed record DocumentoNube(string Id, Dictionary<string, object> Datos
 
 internal sealed class SincronizadorNube
 {
+    internal const int DiasVentanaHistorial = 90;
     private const string Marca = "Actualizado";
+    private const string CampoFicha = "Id ficha";
     private readonly string _coleccion;
     private readonly object _colaLock = new();
     private readonly object _cursorLock = new();
@@ -30,6 +32,10 @@ internal sealed class SincronizadorNube
     private bool _bajasMarco;
     private bool _historial;
     private int _escuchaPedida;
+    private int _coleccionLeida;
+    private string[]? _campos;
+    private readonly Dictionary<string, Task<bool>> _fichasEnCurso = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _fichasListas = new(StringComparer.OrdinalIgnoreCase);
     private Timestamp _cursor;
     private Timestamp _cursorDatos;
     private Timestamp _cursorBajas;
@@ -42,22 +48,14 @@ internal sealed class SincronizadorNube
         FirestoreDb db,
         Func<IReadOnlyList<DocumentoNube>> copiarLocal,
         Action<IReadOnlyList<DocumentoNube>, IReadOnlyList<string>, bool> aplicar,
-        bool historial = false)
+        bool historial = false,
+        IReadOnlyList<string>? campos = null)
     {
         _base = db;
         _copiarLocal = copiarLocal;
         _aplicar = aplicar;
         _historial = historial;
-        if (historial && Volatile.Read(ref _historialListo) == 0)
-        {
-            var cursor = CursorHistorial.Cargar(_coleccion);
-            if (cursor.Listo)
-            {
-                _cursor = cursor.Marca;
-                Volatile.Write(ref _historialListo, 1);
-            }
-        }
-
+        _campos = campos is { Count: > 0 } ? campos.ToArray() : null;
         _ = ProcesarColaAsync();
     }
 
@@ -69,6 +67,74 @@ internal sealed class SincronizadorNube
         }
 
         _ = IniciarIncrementalAsync();
+    }
+
+    public Task<bool> CargarFichaAsync(Guid fichaId)
+    {
+        if (_base is null || !_historial || _aplicar is null || Volatile.Read(ref _coleccionLeida) == 1)
+        {
+            return Task.FromResult(false);
+        }
+
+        var clave = fichaId.ToString("D");
+
+        lock (_colaLock)
+        {
+            if (_fichasListas.Contains(clave))
+            {
+                return Task.FromResult(false);
+            }
+
+            if (_fichasEnCurso.TryGetValue(clave, out var existente))
+            {
+                return existente;
+            }
+
+            var tarea = LeerFichaAsync(clave);
+            _fichasEnCurso[clave] = tarea;
+            return tarea;
+        }
+    }
+
+    private async Task<bool> LeerFichaAsync(string clave)
+    {
+        try
+        {
+            if (_base is null || _aplicar is null)
+            {
+                return false;
+            }
+
+            var snap = await Consulta().WhereEqualTo(CampoFicha, clave).GetSnapshotAsync();
+            if (snap.Count == 0)
+            {
+                return false;
+            }
+
+            var documentos = Leer(snap.Documents);
+            if (documentos.Count > 0)
+            {
+                _aplicar(documentos, [], false);
+                lock (_colaLock)
+                {
+                    _fichasListas.Add(clave);
+                }
+            }
+
+            return documentos.Count > 0;
+        }
+        catch (Exception ex)
+        {
+            ModulosNube.Reportar("Módulos en vivo, con un error al leer: " + ex.Message);
+            return false;
+        }
+        finally
+        {
+            lock (_colaLock)
+            {
+                _fichasEnCurso.Remove(clave);
+            }
+        }
     }
 
     public Task EmpujarLocalAsync()
@@ -158,7 +224,28 @@ internal sealed class SincronizadorNube
 
         try
         {
-            if (Volatile.Read(ref _historialListo) == 1)
+            if (_historial)
+            {
+                var cursor = CursorHistorial.Cargar(_coleccion);
+                if (!HistorialAlineado(_coleccion) || !cursor.Listo)
+                {
+                    var snap = await Consulta().GetSnapshotAsync();
+                    if (snap.Count > 0)
+                    {
+                        _aplicar(Leer(snap.Documents), [], false);
+                    }
+
+                    cursor = CursorHistorial.Desde(snap.ReadTime);
+                    cursor.Guardar(_coleccion);
+                    if (snap.Count > 0 || _copiarLocal().Count == 0)
+                    {
+                        MarcarHistorialAlineado(_coleccion);
+                    }
+                }
+
+                _cursor = cursor.Marca;
+            }
+            else if (Volatile.Read(ref _historialListo) == 1)
             {
                 if (_cursor == default)
                 {
@@ -173,7 +260,7 @@ internal sealed class SincronizadorNube
                     var local = _copiarLocal();
                     if (local.Count > 0)
                     {
-                        cursor = CursorHistorial.Desde(Timestamp.FromDateTime(DateTime.UnixEpoch));
+                        cursor = CursorHistorial.Desde(Timestamp.FromDateTime(DateTime.UtcNow));
                         cursor.Guardar(_coleccion);
                         _cursor = cursor.Marca;
                     }
@@ -207,7 +294,7 @@ internal sealed class SincronizadorNube
                 }
             }
 
-            _escucha = _base.Collection(_coleccion)
+            _escucha = Consulta()
                 .WhereGreaterThan(Marca, _cursor)
                 .OrderBy(Marca)
                 .Listen(AlRecibirHistorial);
@@ -398,6 +485,32 @@ internal sealed class SincronizadorNube
         }
     }
 
+    private static string RutaHistorialAlineado(string coleccion) =>
+        Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "IdermaCapilar",
+            "nube-alineado-" + coleccion + ".txt");
+
+    private static bool HistorialAlineado(string coleccion) => File.Exists(RutaHistorialAlineado(coleccion));
+
+    private static void MarcarHistorialAlineado(string coleccion)
+    {
+        var ruta = RutaHistorialAlineado(coleccion);
+        Directory.CreateDirectory(Path.GetDirectoryName(ruta)!);
+        File.WriteAllText(ruta, "ok");
+    }
+
+    private Query Consulta()
+    {
+        Query consulta = _base!.Collection(_coleccion);
+        if (_campos is { Length: > 0 })
+        {
+            consulta = consulta.Select(_campos.Select(campo => new FieldPath(campo)).ToArray());
+        }
+
+        return consulta;
+    }
+
     private static List<DocumentoNube> Leer(IEnumerable<DocumentSnapshot> documentos)
     {
         var lista = new List<DocumentoNube>();
@@ -581,12 +694,30 @@ internal sealed class SincronizadorNube
 
     private Dictionary<string, object> DatosParaEscribir(DocumentoNube doc)
     {
-        var copia = new Dictionary<string, object>(doc.Datos)
-        {
-            [Marca] = FieldValue.ServerTimestamp
-        };
+        var copia = CopiarFirestore(doc.Datos);
+        copia[Marca] = FieldValue.ServerTimestamp;
         return copia;
     }
+
+    private static Dictionary<string, object> CopiarFirestore(IDictionary<string, object> datos)
+    {
+        var copia = new Dictionary<string, object>(datos.Count);
+        foreach (var par in datos)
+        {
+            copia[par.Key] = ValorFirestore(par.Value);
+        }
+
+        return copia;
+    }
+
+    private static object ValorFirestore(object valor) => valor switch
+    {
+        decimal numero => (double)numero,
+        byte[] => valor,
+        IDictionary<string, object> mapa => CopiarFirestore(mapa),
+        IList lista => lista.Cast<object>().Select(ValorFirestore).ToList(),
+        _ => valor
+    };
 
     private string ColeccionBajas => _coleccion + "-bajas";
 
@@ -880,6 +1011,60 @@ internal sealed class SincronizadorNube
 
             public string G { get; set; } = string.Empty;
         }
+    }
+
+    private static class FichasLeidas
+    {
+        private static readonly object Candado = new();
+
+        public static bool Contiene(string coleccion, string id)
+        {
+            lock (Candado)
+            {
+                return Cargar(coleccion).Contains(id);
+            }
+        }
+
+        public static void Marcar(string coleccion, string id)
+        {
+            lock (Candado)
+            {
+                var ids = Cargar(coleccion);
+                if (!ids.Add(id))
+                {
+                    return;
+                }
+
+                var ruta = Ruta(coleccion);
+                Directory.CreateDirectory(Path.GetDirectoryName(ruta)!);
+                File.WriteAllText(ruta, JsonSerializer.Serialize(ids.OrderBy(item => item, StringComparer.OrdinalIgnoreCase)));
+            }
+        }
+
+        private static HashSet<string> Cargar(string coleccion)
+        {
+            var ruta = Ruta(coleccion);
+            if (!File.Exists(ruta))
+            {
+                return new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            }
+
+            try
+            {
+                var ids = JsonSerializer.Deserialize<List<string>>(File.ReadAllText(ruta));
+                return new HashSet<string>(ids ?? [], StringComparer.OrdinalIgnoreCase);
+            }
+            catch
+            {
+                return new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            }
+        }
+
+        private static string Ruta(string coleccion) =>
+            Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "IdermaCapilar",
+                "nube-fichas-" + coleccion + ".json");
     }
 
     private sealed class CursorHistorial

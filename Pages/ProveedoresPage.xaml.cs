@@ -1,3 +1,5 @@
+﻿using System.ComponentModel;
+using System.Runtime.CompilerServices;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
@@ -8,8 +10,11 @@ using IdermaFichas.Services;
 
 namespace IdermaFichas.Pages;
 
-public sealed class ProveedorFila
+public sealed class ProveedorFila : INotifyPropertyChanged
 {
+    private bool _estaMarcada;
+    private bool _mostrarMarca;
+
     public required string IdTexto { get; init; }
     public required string Nombre { get; init; }
     public required string Dato1 { get; init; }
@@ -19,18 +24,67 @@ public sealed class ProveedorFila
     public required string Notas { get; init; }
     public required string Calificacion { get; init; }
     public required string FechaTexto { get; init; }
-    public required string UsoTexto { get; init; }
+    public required string DetalleTexto { get; init; }
+    public required string TextoBusqueda { get; init; }
     public IReadOnlyList<CanalDatoOpcion> Canales => CanalDatoProveedor.Opciones;
     public IReadOnlyList<string> Calificaciones => CalificacionProveedor.Todas;
+
+    public bool EstaMarcada
+    {
+        get => _estaMarcada;
+        set
+        {
+            if (_estaMarcada == value)
+            {
+                return;
+            }
+
+            _estaMarcada = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public bool MostrarMarca
+    {
+        get => _mostrarMarca;
+        set
+        {
+            if (_mostrarMarca == value)
+            {
+                return;
+            }
+
+            _mostrarMarca = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public event PropertyChangedEventHandler? PropertyChanged;
+
+    private void OnPropertyChanged([CallerMemberName] string? nombre = null) =>
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nombre));
 }
 
 public sealed partial class ProveedoresPage : Page, IVistaInventario
 {
     private readonly HashSet<int> _meses = [];
+    private readonly HashSet<Guid> _marcados = [];
+    private readonly HashSet<Guid> _omitidosSimilitud = [];
+    private Dictionary<string, int>? _usosCache;
+    private List<ProveedorFila> _visibles = [];
+    private ReversionSimilitud? _ultimaReversion;
     private int? _atajoMeses;
     private bool _aplicandoFiltros;
+    private bool _modoSeleccionar;
     private int _listaSuspendida;
     private int _total;
+    private bool _syncPendiente;
+
+    private sealed class ReversionSimilitud
+    {
+        public required IReadOnlyList<ProveedorRegistro> Proveedores { get; init; }
+        public required IReadOnlyList<ProveedorFichaSync.InstantaneaContactoFicha> Fichas { get; init; }
+    }
 
     public ProveedoresPage()
     {
@@ -42,19 +96,43 @@ public sealed partial class ProveedoresPage : Page, IVistaInventario
             .ToList();
         ComboCalificacion.SelectedIndex = 0;
         _aplicandoFiltros = false;
+        ActualizarBotonRevertir();
     }
 
     protected override void OnNavigatedTo(NavigationEventArgs e)
     {
-        var agregados = SincronizarFichas();
+        // Lista primero (rápida); sync de fichas en segundo plano para no bloquear la entrada.
+        InvalidarUsos();
         RefrescarLista(recargarAnios: true);
-        if (agregados > 0)
+        ActualizarBotonRevertir();
+        _ = SincronizarEnSegundoPlanoAsync();
+    }
+
+    private async Task SincronizarEnSegundoPlanoAsync()
+    {
+        if (_syncPendiente)
         {
-            Mostrar(
-                InfoBarSeverity.Informational,
-                agregados == 1
-                    ? "Se agregó 1 proveedor desde las fichas técnicas, con sus redes, web y notas."
-                    : $"Se agregaron {agregados} proveedores desde las fichas técnicas, con sus redes, web y notas.");
+            return;
+        }
+
+        _syncPendiente = true;
+        try
+        {
+            var agregados = await Task.Run(SincronizarFichas).ConfigureAwait(true);
+            if (agregados > 0)
+            {
+                InvalidarUsos();
+                RefrescarLista(true);
+                Mostrar(
+                    InfoBarSeverity.Informational,
+                    agregados == 1
+                        ? "Se agregó 1 proveedor desde las fichas técnicas, con sus redes, web y notas."
+                        : $"Se agregaron {agregados} proveedores desde las fichas técnicas, con sus redes, web y notas.");
+            }
+        }
+        finally
+        {
+            _syncPendiente = false;
         }
     }
 
@@ -235,7 +313,8 @@ public sealed partial class ProveedoresPage : Page, IVistaInventario
 
     public void AplicarCambioInventario()
     {
-        SincronizarFichas();
+        InvalidarUsos();
+        _ = SincronizarEnSegundoPlanoAsync();
         RefrescarLista(false);
         AnimacionLista.Revelar(Lista);
     }
@@ -256,23 +335,24 @@ public sealed partial class ProveedoresPage : Page, IVistaInventario
         _total = todos.Count;
 
         var usos = UsosPorNombre();
-        var filas = todos
+        _visibles = todos
             .Where(p => Pasa(p, busqueda, calificacion, anio, meses, desde))
             .Select(p => CrearFila(p, usos.TryGetValue(p.Nombre, out var n) ? n : 0))
             .ToList();
 
         SuspenderLista();
-        Lista.ItemsSource = filas;
+        Lista.ItemsSource = _visibles;
         ReanudarLista();
 
         var hayFiltro = busqueda.Length > 0 || calificacion is not null || anio is not null || meses.Count > 0 || desde is not null;
-        TextoVacio.Visibility = filas.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        TextoVacio.Visibility = _visibles.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         TextoVacio.Text = _total == 0
             ? "Aún no hay proveedores. Agregue uno o actualice desde las fichas técnicas."
             : "Ningún proveedor coincide con la búsqueda o el periodo.";
         TextoConteo.Text = hayFiltro
-            ? $"{TextoCantidad(filas.Count)} de {TextoCantidad(_total)} · {FiltroPeriodoIngresos.Describir(anio, meses, desde, _atajoMeses)}"
+            ? $"{TextoCantidad(_visibles.Count)} de {TextoCantidad(_total)} · {FiltroPeriodoIngresos.Describir(anio, meses, desde, _atajoMeses)}"
             : $"{TextoCantidad(_total)} · {FiltroPeriodoIngresos.Describir(anio, meses, desde, _atajoMeses)}";
+        ActualizarBarraSeleccion();
     }
 
     private static bool Pasa(
@@ -299,18 +379,45 @@ public sealed partial class ProveedoresPage : Page, IVistaInventario
             return true;
         }
 
-        var texto = $"{proveedor.Nombre} {proveedor.Contacto} {proveedor.Dato1} {proveedor.Dato2} {proveedor.Notas} {proveedor.Calificacion} {CanalDatoProveedor.De(proveedor.Canal1).Titulo} {CanalDatoProveedor.De(proveedor.Canal2).Titulo}";
-        return texto.Contains(busqueda, StringComparison.CurrentCultureIgnoreCase);
+        return TextoBusqueda(proveedor).Contains(busqueda, StringComparison.CurrentCultureIgnoreCase);
     }
 
-    private static Dictionary<string, int> UsosPorNombre() =>
-        App.Instance.Repositorio.Todas
+    private static string TextoBusqueda(ProveedorRegistro proveedor) =>
+        string.Join(
+            ' ',
+            proveedor.Nombre,
+            proveedor.RazonSocial,
+            proveedor.Ruc,
+            proveedor.Contacto,
+            proveedor.Dato1,
+            proveedor.Dato2,
+            proveedor.Notas,
+            proveedor.Calificacion,
+            proveedor.Banco,
+            proveedor.BancoOtro,
+            proveedor.NumeroCuenta,
+            proveedor.Cci,
+            CanalDatoProveedor.De(proveedor.Canal1).Titulo,
+            CanalDatoProveedor.De(proveedor.Canal2).Titulo);
+
+    private Dictionary<string, int> UsosPorNombre()
+    {
+        if (_usosCache is not null)
+        {
+            return _usosCache;
+        }
+
+        _usosCache = App.Instance.Repositorio.Todas
             .Select(f => (f.Proveedor ?? string.Empty).Trim())
             .Where(nombre => nombre.Length > 0)
             .GroupBy(nombre => nombre, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(g => g.Key, g => g.Count(), StringComparer.OrdinalIgnoreCase);
+        return _usosCache;
+    }
 
-    private static ProveedorFila CrearFila(ProveedorRegistro proveedor, int usos) => new()
+    private void InvalidarUsos() => _usosCache = null;
+
+    private ProveedorFila CrearFila(ProveedorRegistro proveedor, int usos) => new()
     {
         IdTexto = proveedor.Id.ToString(),
         Nombre = proveedor.Nombre,
@@ -320,14 +427,210 @@ public sealed partial class ProveedoresPage : Page, IVistaInventario
         Placeholder2 = CanalDatoProveedor.De(proveedor.Canal2).Placeholder,
         Notas = proveedor.Notas,
         Calificacion = proveedor.Calificacion,
-        FechaTexto = $"Agregado el {proveedor.FechaAgregado.ToLocalTime():dd/MM/yyyy}",
-        UsoTexto = usos == 0
-            ? "Aún no está en una ficha técnica"
-            : usos == 1 ? "En 1 ficha técnica" : $"En {usos} fichas técnicas"
+        FechaTexto = proveedor.FechaAgregado.ToLocalTime().ToString("dd/MM/yyyy"),
+        DetalleTexto = ConstruirDetalle(proveedor, usos),
+        TextoBusqueda = TextoBusqueda(proveedor),
+        EstaMarcada = _marcados.Contains(proveedor.Id),
+        MostrarMarca = _modoSeleccionar
     };
+
+    private static string ConstruirDetalle(ProveedorRegistro proveedor, int usos)
+    {
+        var partes = new List<string>
+        {
+            usos == 0 ? "Sin fichas" : usos == 1 ? "1 ficha" : $"{usos} fichas"
+        };
+
+        if (proveedor.Ruc.Length > 0 || proveedor.RazonSocial.Length > 0)
+        {
+            partes.Add(proveedor.TextoEmpresa);
+        }
+        else
+        {
+            partes.Add("Sin RUC");
+        }
+
+        if (proveedor.TiempoEntregaDias > 0)
+        {
+            partes.Add(proveedor.TiempoEntregaDias == 1
+                ? "Entrega 1 día"
+                : $"Entrega {proveedor.TiempoEntregaDias} días");
+        }
+        else
+        {
+            partes.Add("Sin entrega");
+        }
+
+        if (proveedor.AcuerdoContrato && proveedor.CantidadContrato > 0)
+        {
+            var cantidad = proveedor.CantidadContrato.ToString(
+                "0.##",
+                System.Globalization.CultureInfo.GetCultureInfo("es-PE"));
+            var unidad = proveedor.UnidadContrato.Length == 0 ? "unidades" : proveedor.UnidadContrato;
+            partes.Add($"Mín. {cantidad} {unidad}");
+        }
+
+        partes.Add(BancoProveedor.Normalizar(proveedor.Banco).Length > 0
+            ? proveedor.TextoBanco
+            : "Sin banco");
+
+        return string.Join(" · ", partes);
+    }
 
     private static string TextoCantidad(int cantidad) =>
         cantidad == 1 ? "1 proveedor" : $"{cantidad} proveedores";
+
+    private void ModoSeleccionar_Click(object sender, RoutedEventArgs e)
+    {
+        _modoSeleccionar = BotonModoSeleccionar.IsChecked == true;
+        BotonModoSeleccionar.Content = _modoSeleccionar ? "Seleccionando" : "Seleccionar";
+        var vis = _modoSeleccionar ? Visibility.Visible : Visibility.Collapsed;
+        BotonSeleccionarTodos.Visibility = vis;
+        BotonDeseleccionarTodos.Visibility = vis;
+        BotonEliminarSeleccionados.Visibility = vis;
+        if (!_modoSeleccionar)
+        {
+            _marcados.Clear();
+        }
+
+        foreach (var fila in _visibles)
+        {
+            fila.MostrarMarca = _modoSeleccionar;
+            if (!_modoSeleccionar)
+            {
+                fila.EstaMarcada = false;
+            }
+        }
+
+        ActualizarBarraSeleccion();
+    }
+
+    private void SeleccionarTodos_Click(object sender, RoutedEventArgs e)
+    {
+        if (!_modoSeleccionar)
+        {
+            return;
+        }
+
+        foreach (var fila in _visibles)
+        {
+            if (!Guid.TryParse(fila.IdTexto, out var id))
+            {
+                continue;
+            }
+
+            fila.EstaMarcada = true;
+            _marcados.Add(id);
+        }
+
+        ActualizarBarraSeleccion();
+    }
+
+    private void DeseleccionarTodos_Click(object sender, RoutedEventArgs e)
+    {
+        if (!_modoSeleccionar)
+        {
+            return;
+        }
+
+        _marcados.Clear();
+        foreach (var fila in _visibles)
+        {
+            fila.EstaMarcada = false;
+        }
+
+        ActualizarBarraSeleccion();
+    }
+
+    private void MarcaProveedor_Changed(object sender, RoutedEventArgs e)
+    {
+        if (sender is not CheckBox caja || !TryId(caja, out var id))
+        {
+            return;
+        }
+
+        if (caja.IsChecked == true)
+        {
+            _marcados.Add(id);
+        }
+        else
+        {
+            _marcados.Remove(id);
+        }
+
+        var fila = _visibles.FirstOrDefault(f => Guid.TryParse(f.IdTexto, out var fid) && fid == id);
+        if (fila is not null)
+        {
+            fila.EstaMarcada = caja.IsChecked == true;
+        }
+
+        ActualizarBarraSeleccion();
+    }
+
+    private void ActualizarBarraSeleccion()
+    {
+        var n = _marcados.Count;
+        BotonEliminarSeleccionados.IsEnabled = _modoSeleccionar && n > 0;
+        BotonEliminarSeleccionados.Content = n == 0
+            ? "Eliminar seleccionados"
+            : n == 1
+                ? "Eliminar 1 seleccionado"
+                : $"Eliminar {n} seleccionados";
+    }
+
+    private async void EliminarSeleccionados_Click(object sender, RoutedEventArgs e)
+    {
+        var ids = _marcados.ToList();
+        if (ids.Count == 0)
+        {
+            return;
+        }
+
+        var nombres = ids
+            .Select(id => App.Instance.Proveedores.Obtener(id)?.Nombre)
+            .Where(n => !string.IsNullOrWhiteSpace(n))
+            .Cast<string>()
+            .ToList();
+        var dialogo = new ContentDialog
+        {
+            Title = ids.Count == 1 ? "Eliminar proveedor" : "Eliminar proveedores",
+            Content = ids.Count == 1
+                ? $"¿Eliminar «{nombres.FirstOrDefault()}»? Se quita de esta lista, del historial y de las fichas que lo usan."
+                : $"¿Eliminar {ids.Count} proveedores seleccionados? Se quitan de esta lista, del historial y de las fichas que los usan.",
+            PrimaryButtonText = "Eliminar",
+            CloseButtonText = "Cancelar",
+            DefaultButton = ContentDialogButton.Close,
+            XamlRoot = XamlRoot
+        };
+        if (await dialogo.ShowAsync() != ContentDialogResult.Primary)
+        {
+            return;
+        }
+
+        var borrados = 0;
+        foreach (var id in ids)
+        {
+            if (App.Instance.Proveedores.Obtener(id) is not { } proveedor)
+            {
+                continue;
+            }
+
+            ProveedorFichaSync.Quitar(proveedor.Nombre);
+            if (App.Instance.Proveedores.Eliminar(id))
+            {
+                borrados++;
+            }
+        }
+
+        _marcados.Clear();
+        InvalidarUsos();
+        RefrescarLista(true);
+        Mostrar(
+            InfoBarSeverity.Success,
+            borrados == 1
+                ? "Proveedor eliminado de la lista y de las fichas técnicas."
+                : $"{borrados} proveedores eliminados de la lista y de las fichas técnicas.");
+    }
 
     private async void Agregar_Click(object sender, RoutedEventArgs e) =>
         await EditarAsync(null);
@@ -345,168 +648,19 @@ public sealed partial class ProveedoresPage : Page, IVistaInventario
     private async Task EditarAsync(ProveedorRegistro? origen)
     {
         var esNuevo = origen is null;
-        var id = origen?.Id ?? Guid.NewGuid();
-        var nombre = new TextBox
-        {
-            Header = "Nombre",
-            Text = origen?.Nombre ?? string.Empty,
-            PlaceholderText = "Nombre del proveedor"
-        };
-        var canal1 = CrearComboCanal(origen?.Canal1);
-        var dato1 = new TextBox
-        {
-            Header = "Dato",
-            Text = origen?.Dato1 ?? string.Empty,
-            PlaceholderText = CanalDatoProveedor.De(origen?.Canal1).Placeholder
-        };
-        var canal2 = CrearComboCanal(origen?.Canal2 ?? CanalDatoProveedor.Web);
-        var dato2 = new TextBox
-        {
-            Header = "Dato",
-            Text = origen?.Dato2 ?? string.Empty,
-            PlaceholderText = CanalDatoProveedor.De(origen?.Canal2).Placeholder
-        };
-        canal1.SelectionChanged += (_, _) =>
-        {
-            if (canal1.SelectedItem is CanalDatoOpcion opcion)
-            {
-                dato1.PlaceholderText = opcion.Placeholder;
-            }
-        };
-        canal2.SelectionChanged += (_, _) =>
-        {
-            if (canal2.SelectedItem is CanalDatoOpcion opcion)
-            {
-                dato2.PlaceholderText = opcion.Placeholder;
-            }
-        };
-        var filaCanal1 = new Grid { ColumnSpacing = 8 };
-        filaCanal1.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(180) });
-        filaCanal1.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        Grid.SetColumn(dato1, 1);
-        filaCanal1.Children.Add(canal1);
-        filaCanal1.Children.Add(dato1);
-        var filaCanal2 = new Grid { ColumnSpacing = 8 };
-        filaCanal2.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(180) });
-        filaCanal2.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        Grid.SetColumn(dato2, 1);
-        filaCanal2.Children.Add(canal2);
-        filaCanal2.Children.Add(dato2);
-        var notas = new TextBox
-        {
-            Header = "Notas",
-            Text = origen?.Notas ?? string.Empty,
-            AcceptsReturn = true,
-            TextWrapping = TextWrapping.Wrap,
-            MinHeight = 90
-        };
-        var calificacion = new ComboBox
-        {
-            Header = "Calificación",
-            HorizontalAlignment = HorizontalAlignment.Stretch
-        };
-        foreach (var item in CalificacionProveedor.Todas)
-        {
-            calificacion.Items.Add(item);
-        }
-
-        calificacion.SelectedItem = CalificacionProveedor.Normalizar(origen?.Calificacion);
-        var error = new TextBlock
-        {
-            Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["VencidoBrush"],
-            TextWrapping = TextWrapping.Wrap,
-            Visibility = Visibility.Collapsed
-        };
-        var panel = new StackPanel { Spacing = 12, MinWidth = 480 };
-        panel.Children.Add(nombre);
-        panel.Children.Add(filaCanal1);
-        panel.Children.Add(filaCanal2);
-        panel.Children.Add(calificacion);
-        panel.Children.Add(notas);
-        panel.Children.Add(error);
-
-        var dialogo = new ContentDialog
-        {
-            Title = esNuevo ? "Agregar proveedor" : "Editar proveedor",
-            Content = panel,
-            PrimaryButtonText = "Guardar",
-            CloseButtonText = "Cancelar",
-            DefaultButton = ContentDialogButton.Primary,
-            XamlRoot = XamlRoot
-        };
-        dialogo.PrimaryButtonClick += (_, args) =>
-        {
-            var limpio = nombre.Text.Trim();
-            if (limpio.Length == 0)
-            {
-                args.Cancel = true;
-                error.Text = "Escriba el nombre del proveedor.";
-                error.Visibility = Visibility.Visible;
-                return;
-            }
-
-            if (App.Instance.Proveedores.ExisteNombre(limpio, id))
-            {
-                args.Cancel = true;
-                error.Text = "Ya existe un proveedor con ese nombre.";
-                error.Visibility = Visibility.Visible;
-                return;
-            }
-
-            error.Visibility = Visibility.Collapsed;
-        };
-
-        if (await dialogo.ShowAsync() != ContentDialogResult.Primary)
+        var guardado = await ProveedorEditorDialogo.MostrarAsync(XamlRoot, origen);
+        if (guardado is null)
         {
             return;
         }
 
-        var registro = new ProveedorRegistro
-        {
-            Id = id,
-            Nombre = nombre.Text,
-            Canal1 = (canal1.SelectedItem as CanalDatoOpcion)?.Id ?? CanalDatoProveedor.WhatsApp,
-            Dato1 = dato1.Text,
-            Canal2 = (canal2.SelectedItem as CanalDatoOpcion)?.Id ?? CanalDatoProveedor.Web,
-            Dato2 = dato2.Text,
-            Notas = notas.Text,
-            Calificacion = calificacion.SelectedItem as string ?? CalificacionProveedor.SinCalificar,
-            FechaAgregado = origen?.FechaAgregado ?? DateTimeOffset.Now,
-            FechaContacto = DateTimeOffset.Now
-        };
-        if (!App.Instance.Proveedores.Guardar(registro))
-        {
-            Mostrar(InfoBarSeverity.Error, "No se pudo guardar el proveedor.");
-            return;
-        }
-
-        var guardado = App.Instance.Proveedores.Obtener(id) ?? registro;
-        ProveedorFichaSync.Publicar(origen?.Nombre ?? guardado.Nombre, guardado);
+        InvalidarUsos();
         RefrescarLista(true);
         Mostrar(
             InfoBarSeverity.Success,
             esNuevo
                 ? "Proveedor agregado. También queda en el historial de la ficha técnica."
                 : "Proveedor actualizado en esta lista y en las fichas que lo usan.");
-    }
-
-    private ComboBox CrearComboCanal(string? canalId)
-    {
-        var combo = new ComboBox
-        {
-            Header = "Red o web",
-            HorizontalAlignment = HorizontalAlignment.Stretch,
-            VerticalAlignment = VerticalAlignment.Bottom,
-            ItemTemplate = (DataTemplate)Resources["CanalDatoPlantilla"]
-        };
-        foreach (var opcion in CanalDatoProveedor.Opciones)
-        {
-            combo.Items.Add(opcion);
-        }
-
-        var elegido = CanalDatoProveedor.De(canalId);
-        combo.SelectedItem = combo.Items.OfType<CanalDatoOpcion>().First(o => o.Id == elegido.Id);
-        return combo;
     }
 
     private async void Eliminar_Click(object sender, RoutedEventArgs e)
@@ -538,6 +692,8 @@ public sealed partial class ProveedoresPage : Page, IVistaInventario
 
         ProveedorFichaSync.Quitar(proveedor.Nombre);
         App.Instance.Proveedores.Eliminar(id);
+        _marcados.Remove(id);
+        InvalidarUsos();
         RefrescarLista(true);
         Mostrar(InfoBarSeverity.Success, "Proveedor eliminado de la lista y de las fichas técnicas.");
     }
@@ -748,6 +904,7 @@ public sealed partial class ProveedoresPage : Page, IVistaInventario
     private void TraerProductos_Click(object sender, RoutedEventArgs e)
     {
         var agregados = SincronizarFichas();
+        InvalidarUsos();
         RefrescarLista(true);
         Mostrar(
             agregados > 0 ? InfoBarSeverity.Success : InfoBarSeverity.Informational,
@@ -757,6 +914,517 @@ public sealed partial class ProveedoresPage : Page, IVistaInventario
                     : $"Se agregaron {agregados} proveedores desde las fichas técnicas.")
                 : "Los proveedores ya coinciden con las fichas técnicas.");
     }
+
+    private async void BuscarSimilitudes_Click(object sender, RoutedEventArgs e) =>
+        await MostrarSimilitudesAsync();
+
+    private async Task MostrarSimilitudesAsync()
+    {
+        var omitidosGrupos = new HashSet<string>(StringComparer.Ordinal);
+        while (true)
+        {
+            var grupos = SimilitudProveedores.Buscar(App.Instance.Proveedores.Listar())
+                .Select(FiltrarOmitidosIndividuales)
+                .Where(g => g.Proveedores.Count > 1 && !omitidosGrupos.Contains(ClaveGrupoSimilitud(g)))
+                .ToList();
+            if (grupos.Count == 0)
+            {
+                Mostrar(
+                    InfoBarSeverity.Informational,
+                    omitidosGrupos.Count == 0 && _omitidosSimilitud.Count == 0
+                        ? "No hay nombres parecidos entre proveedores. Si agrega variantes nuevas, vuelva a buscar."
+                        : "No quedan más grupos por revisar. Los omitidos se dejaron sin cambiar.");
+                return;
+            }
+
+            var usos = UsosPorNombre();
+            var elegidos = new Dictionary<int, Guid?>();
+            var personalizados = new Dictionary<int, TextBox>();
+            var radiosPersonalizados = new Dictionary<int, RadioButton>();
+            var omitidosLocales = new Dictionary<int, HashSet<Guid>>();
+            var listaGrupos = new StackPanel { Spacing = 12, MinWidth = 480 };
+            listaGrupos.Children.Add(new TextBlock
+            {
+                Text = "Elija un nombre existente, escriba uno nuevo en la caja, o «No reemplazar» si son distintos. «Omitir» deja fuera a un proveedor del reemplazo.",
+                TextWrapping = TextWrapping.Wrap,
+                Opacity = 0.85
+            });
+
+            for (var i = 0; i < grupos.Count; i++)
+            {
+                var indiceGrupo = i;
+                var grupo = grupos[i];
+                omitidosLocales[indiceGrupo] = [];
+                var tarjeta = new StackPanel { Spacing = 6 };
+                tarjeta.Children.Add(new TextBlock
+                {
+                    Text = grupos.Count == 1
+                        ? "Nombres parecidos"
+                        : $"Grupo {i + 1} de {grupos.Count}",
+                    FontWeight = Microsoft.UI.Text.FontWeights.SemiBold
+                });
+
+                var omitirGrupo = new RadioButton
+                {
+                    Content = "No reemplazar (dejarlos como están)",
+                    Tag = null,
+                    GroupName = $"similitud-{indiceGrupo}",
+                    Margin = new Thickness(0, 0, 0, 2),
+                    IsChecked = true
+                };
+                omitirGrupo.Checked += (_, _) =>
+                {
+                    if (omitirGrupo.IsChecked == true)
+                    {
+                        elegidos[indiceGrupo] = null;
+                    }
+                };
+                elegidos[indiceGrupo] = null;
+                tarjeta.Children.Add(omitirGrupo);
+
+                foreach (var proveedor in grupo.Proveedores)
+                {
+                    usos.TryGetValue(proveedor.Nombre, out var n);
+                    var detalle = n == 0
+                        ? "sin fichas"
+                        : n == 1 ? "1 ficha" : $"{n} fichas";
+                    var extra = proveedor.Ruc.Length == 11 ? $" · RUC {proveedor.Ruc}" : string.Empty;
+                    var fila = new Grid { ColumnSpacing = 8, Margin = new Thickness(0, 0, 0, 2) };
+                    fila.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                    fila.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+                    var radio = new RadioButton
+                    {
+                        Content = $"Usar «{proveedor.Nombre}» ({detalle}{extra})",
+                        Tag = proveedor.Id,
+                        GroupName = $"similitud-{indiceGrupo}",
+                        VerticalAlignment = VerticalAlignment.Center
+                    };
+                    radio.Checked += (_, _) =>
+                    {
+                        if (radio.IsChecked == true && radio.Tag is Guid id)
+                        {
+                            elegidos[indiceGrupo] = id;
+                        }
+                    };
+                    Grid.SetColumn(radio, 0);
+                    fila.Children.Add(radio);
+
+                    var botonOmitir = new Button
+                    {
+                        Content = "Omitir",
+                        Tag = proveedor.Id,
+                        Padding = new Thickness(10, 2, 10, 2),
+                        MinHeight = 28,
+                        VerticalAlignment = VerticalAlignment.Center
+                    };
+                    ToolTipService.SetToolTip(botonOmitir, "No reemplazar este proveedor; se deja fuera del grupo.");
+                    var idOmitir = proveedor.Id;
+                    var nombreOmitir = proveedor.Nombre;
+                    botonOmitir.Click += (_, _) =>
+                    {
+                        _omitidosSimilitud.Add(idOmitir);
+                        omitidosLocales[indiceGrupo].Add(idOmitir);
+                        fila.Opacity = 0.45;
+                        botonOmitir.IsEnabled = false;
+                        botonOmitir.Content = "Omitido";
+                        radio.IsEnabled = false;
+                        if (radio.IsChecked == true)
+                        {
+                            omitirGrupo.IsChecked = true;
+                        }
+
+                        Mostrar(
+                            InfoBarSeverity.Informational,
+                            $"«{nombreOmitir}» se omitió del reemplazo. Puede seguir eligiendo entre los demás.");
+                    };
+                    Grid.SetColumn(botonOmitir, 1);
+                    fila.Children.Add(botonOmitir);
+
+                    tarjeta.Children.Add(fila);
+                }
+
+                var sugerido = grupo.Proveedores
+                    .OrderByDescending(p => usos.TryGetValue(p.Nombre, out var n) ? n : 0)
+                    .Select(p => p.Nombre)
+                    .FirstOrDefault() ?? string.Empty;
+                var cajaNombre = new TextBox
+                {
+                    PlaceholderText = "Escriba el nombre con el que quiere unificar este grupo",
+                    Text = sugerido,
+                    Margin = new Thickness(0, 4, 0, 0)
+                };
+                var radioPersonalizado = new RadioButton
+                {
+                    Content = "Usar el nombre escrito abajo",
+                    GroupName = $"similitud-{indiceGrupo}",
+                    Margin = new Thickness(0, 4, 0, 0)
+                };
+                radioPersonalizado.Checked += (_, _) =>
+                {
+                    if (radioPersonalizado.IsChecked == true)
+                    {
+                        elegidos[indiceGrupo] = Guid.Empty;
+                    }
+                };
+                cajaNombre.GotFocus += (_, _) =>
+                {
+                    radioPersonalizado.IsChecked = true;
+                };
+                cajaNombre.TextChanged += (_, _) =>
+                {
+                    if (!string.IsNullOrWhiteSpace(cajaNombre.Text))
+                    {
+                        radioPersonalizado.IsChecked = true;
+                    }
+                };
+                personalizados[indiceGrupo] = cajaNombre;
+                radiosPersonalizados[indiceGrupo] = radioPersonalizado;
+                tarjeta.Children.Add(radioPersonalizado);
+                tarjeta.Children.Add(cajaNombre);
+
+                listaGrupos.Children.Add(tarjeta);
+            }
+
+            var dialogo = new ContentDialog
+            {
+                Title = "Similitudes entre proveedores",
+                Content = new ScrollViewer
+                {
+                    Content = listaGrupos,
+                    MaxHeight = 520
+                },
+                PrimaryButtonText = "Aplicar",
+                CloseButtonText = "Cerrar",
+                DefaultButton = ContentDialogButton.Primary,
+                XamlRoot = XamlRoot
+            };
+
+            if (await dialogo.ShowAsync() != ContentDialogResult.Primary)
+            {
+                return;
+            }
+
+            var planes = new List<(int Indice, HashSet<Guid> Omitidos, Guid? IdConservar, string? NombrePersonalizado)>();
+            var omitidosAhora = 0;
+            for (var i = 0; i < grupos.Count; i++)
+            {
+                omitidosLocales.TryGetValue(i, out var omitidosDelGrupo);
+                omitidosDelGrupo ??= [];
+                elegidos.TryGetValue(i, out var idConservar);
+                var usaPersonalizado = idConservar == Guid.Empty
+                    || (radiosPersonalizados.TryGetValue(i, out var radioPers) && radioPers.IsChecked == true);
+                var nombrePersonalizado = personalizados.TryGetValue(i, out var caja)
+                    ? (caja.Text ?? string.Empty).Trim()
+                    : string.Empty;
+
+                if (idConservar is null && !usaPersonalizado)
+                {
+                    omitidosGrupos.Add(ClaveGrupoSimilitud(grupos[i]));
+                    omitidosAhora++;
+                    continue;
+                }
+
+                if (usaPersonalizado)
+                {
+                    if (nombrePersonalizado.Length == 0)
+                    {
+                        omitidosGrupos.Add(ClaveGrupoSimilitud(grupos[i]));
+                        omitidosAhora++;
+                        continue;
+                    }
+
+                    planes.Add((i, omitidosDelGrupo, null, nombrePersonalizado));
+                    continue;
+                }
+
+                if (idConservar is null || omitidosDelGrupo.Contains(idConservar.Value))
+                {
+                    omitidosGrupos.Add(ClaveGrupoSimilitud(grupos[i]));
+                    omitidosAhora++;
+                    continue;
+                }
+
+                planes.Add((i, omitidosDelGrupo, idConservar, null));
+            }
+
+            if (planes.Count == 0)
+            {
+                Mostrar(
+                    InfoBarSeverity.Informational,
+                    omitidosAhora > 0 || _omitidosSimilitud.Count > 0
+                        ? "No se reemplazó ningún grupo. Los omitidos o marcados como distintos se dejaron igual."
+                        : "No se aplicó ningún reemplazo.");
+                continue;
+            }
+
+            var idsAfectados = new HashSet<Guid>();
+            var nombresAfectados = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var plan in planes)
+            {
+                foreach (var p in grupos[plan.Indice].Proveedores)
+                {
+                    if (plan.Omitidos.Contains(p.Id) || _omitidosSimilitud.Contains(p.Id))
+                    {
+                        continue;
+                    }
+
+                    idsAfectados.Add(p.Id);
+                    if (!string.IsNullOrWhiteSpace(p.Nombre))
+                    {
+                        nombresAfectados.Add(p.Nombre.Trim());
+                    }
+                }
+
+                if (!string.IsNullOrWhiteSpace(plan.NombrePersonalizado))
+                {
+                    nombresAfectados.Add(plan.NombrePersonalizado!);
+                    var destinoExistente = App.Instance.Proveedores.Listar()
+                        .FirstOrDefault(p => string.Equals(p.Nombre, plan.NombrePersonalizado, StringComparison.OrdinalIgnoreCase));
+                    if (destinoExistente is not null)
+                    {
+                        idsAfectados.Add(destinoExistente.Id);
+                    }
+                }
+                else if (plan.IdConservar is Guid idCons && App.Instance.Proveedores.Obtener(idCons) is { } cons)
+                {
+                    idsAfectados.Add(cons.Id);
+                    if (!string.IsNullOrWhiteSpace(cons.Nombre))
+                    {
+                        nombresAfectados.Add(cons.Nombre.Trim());
+                    }
+                }
+            }
+
+            var reversion = CapturarReversion(idsAfectados, nombresAfectados);
+            var reemplazos = 0;
+            var quitados = 0;
+            foreach (var plan in planes)
+            {
+                if (!string.IsNullOrWhiteSpace(plan.NombrePersonalizado))
+                {
+                    quitados += UnificarGrupoConNombre(
+                        grupos[plan.Indice].Proveedores,
+                        plan.NombrePersonalizado!,
+                        plan.Omitidos,
+                        ref reemplazos);
+                    continue;
+                }
+
+                if (plan.IdConservar is not Guid idConservar ||
+                    App.Instance.Proveedores.Obtener(idConservar) is not { } conservar)
+                {
+                    continue;
+                }
+
+                foreach (var otro in grupos[plan.Indice].Proveedores.Where(p => p.Id != idConservar))
+                {
+                    if (plan.Omitidos.Contains(otro.Id) || _omitidosSimilitud.Contains(otro.Id))
+                    {
+                        continue;
+                    }
+
+                    var actual = App.Instance.Proveedores.Obtener(otro.Id);
+                    if (actual is null)
+                    {
+                        continue;
+                    }
+
+                    ProveedorFichaSync.Publicar(actual.Nombre, conservar);
+                    if (App.Instance.Proveedores.Eliminar(actual.Id))
+                    {
+                        quitados++;
+                        reemplazos++;
+                    }
+                }
+            }
+
+            InvalidarUsos();
+            RefrescarLista(true);
+            if (reemplazos == 0)
+            {
+                Mostrar(
+                    InfoBarSeverity.Informational,
+                    omitidosAhora > 0 || _omitidosSimilitud.Count > 0
+                        ? "No se reemplazó ningún grupo. Los omitidos o marcados como distintos se dejaron igual."
+                        : "No se aplicó ningún reemplazo.");
+                return;
+            }
+
+            _ultimaReversion = reversion;
+            ActualizarBotonRevertir();
+            Mostrar(
+                InfoBarSeverity.Success,
+                quitados == 1
+                    ? "Se unificó 1 proveedor con el nombre elegido. Puede revertir el último cambio si se equivocó."
+                    : $"Se unificaron {quitados} proveedores con los nombres elegidos. Puede revertir el último cambio si se equivocó.");
+
+            var quedan = SimilitudProveedores.Buscar(App.Instance.Proveedores.Listar())
+                .Select(FiltrarOmitidosIndividuales)
+                .Count(g => g.Proveedores.Count > 1 && !omitidosGrupos.Contains(ClaveGrupoSimilitud(g)));
+            if (quedan == 0)
+            {
+                return;
+            }
+        }
+    }
+
+    private void ActualizarBotonRevertir() =>
+        BotonRevertirSimilitud.IsEnabled = _ultimaReversion is not null;
+
+    private async void RevertirUltimoCambio_Click(object sender, RoutedEventArgs e)
+    {
+        if (_ultimaReversion is null)
+        {
+            return;
+        }
+
+        var dialogo = new ContentDialog
+        {
+            Title = "Revertir último cambio",
+            Content = "Se deshará el último reemplazo de similitudes: vuelven los proveedores eliminados o renombrados y las fichas a como estaban.",
+            PrimaryButtonText = "Revertir",
+            CloseButtonText = "Cancelar",
+            DefaultButton = ContentDialogButton.Primary,
+            XamlRoot = XamlRoot
+        };
+        if (await dialogo.ShowAsync() != ContentDialogResult.Primary)
+        {
+            return;
+        }
+
+        foreach (var proveedor in _ultimaReversion.Proveedores)
+        {
+            App.Instance.Proveedores.Restaurar(ProveedoresRepository.Copiar(proveedor));
+        }
+
+        ProveedorFichaSync.RestaurarFichas(_ultimaReversion.Fichas);
+        foreach (var proveedor in _ultimaReversion.Proveedores)
+        {
+            AlmacenHistorialProveedores.ReemplazarPorNombre(
+                proveedor.Nombre,
+                ContactoProveedor.Crear(
+                    proveedor.Nombre,
+                    proveedor.Canal1,
+                    proveedor.Dato1,
+                    proveedor.Canal2,
+                    proveedor.Dato2));
+        }
+
+        _ultimaReversion = null;
+        ActualizarBotonRevertir();
+        InvalidarUsos();
+        RefrescarLista(true);
+        Mostrar(InfoBarSeverity.Success, "Se revirtió el último cambio de similitudes.");
+    }
+
+    private static ReversionSimilitud CapturarReversion(
+        IReadOnlyCollection<Guid> idsProveedores,
+        IReadOnlyCollection<string> nombresProveedores)
+    {
+        var proveedores = App.Instance.Proveedores.Listar()
+            .Where(p => idsProveedores.Contains(p.Id))
+            .Select(ProveedoresRepository.Copiar)
+            .ToList();
+
+        var nombres = new HashSet<string>(nombresProveedores, StringComparer.OrdinalIgnoreCase);
+        foreach (var p in proveedores)
+        {
+            if (!string.IsNullOrWhiteSpace(p.Nombre))
+            {
+                nombres.Add(p.Nombre.Trim());
+            }
+        }
+
+        var fichas = App.Instance.Repositorio.Todas
+            .Where(f => nombres.Contains((f.Proveedor ?? string.Empty).Trim()))
+            .Select(ProveedorFichaSync.CapturarFicha)
+            .ToList();
+
+        return new ReversionSimilitud
+        {
+            Proveedores = proveedores,
+            Fichas = fichas
+        };
+    }
+
+    private int UnificarGrupoConNombre(
+        IReadOnlyList<ProveedorRegistro> miembros,
+        string nombreFinal,
+        HashSet<Guid> omitidosDelGrupo,
+        ref int reemplazos)
+    {
+        var activos = miembros
+            .Where(p => !omitidosDelGrupo.Contains(p.Id) && !_omitidosSimilitud.Contains(p.Id))
+            .Select(p => App.Instance.Proveedores.Obtener(p.Id))
+            .Where(p => p is not null)
+            .Cast<ProveedorRegistro>()
+            .ToList();
+        if (activos.Count == 0)
+        {
+            return 0;
+        }
+
+        var usos = UsosPorNombre();
+        var destino = App.Instance.Proveedores.Listar()
+            .FirstOrDefault(p =>
+                string.Equals(p.Nombre, nombreFinal, StringComparison.OrdinalIgnoreCase));
+        if (destino is null)
+        {
+            destino = activos
+                .OrderByDescending(p => usos.TryGetValue(p.Nombre, out var n) ? n : 0)
+                .ThenBy(p => p.Nombre, StringComparer.CurrentCultureIgnoreCase)
+                .First();
+            var nombreAnterior = destino.Nombre;
+            if (!string.Equals(nombreAnterior, nombreFinal, StringComparison.OrdinalIgnoreCase))
+            {
+                destino.Nombre = nombreFinal;
+                if (!App.Instance.Proveedores.Guardar(destino))
+                {
+                    destino.Nombre = nombreAnterior;
+                    return 0;
+                }
+
+                ProveedorFichaSync.Publicar(nombreAnterior, destino);
+                reemplazos++;
+            }
+        }
+
+        var quitados = 0;
+        foreach (var otro in activos.Where(p => p.Id != destino.Id))
+        {
+            var actual = App.Instance.Proveedores.Obtener(otro.Id);
+            if (actual is null)
+            {
+                continue;
+            }
+
+            ProveedorFichaSync.Publicar(actual.Nombre, destino);
+            if (App.Instance.Proveedores.Eliminar(actual.Id))
+            {
+                quitados++;
+                reemplazos++;
+            }
+        }
+
+        return quitados;
+    }
+
+    private GrupoSimilitudProveedores FiltrarOmitidosIndividuales(GrupoSimilitudProveedores grupo)
+    {
+        if (_omitidosSimilitud.Count == 0)
+        {
+            return grupo;
+        }
+
+        return new GrupoSimilitudProveedores
+        {
+            Proveedores = grupo.Proveedores.Where(p => !_omitidosSimilitud.Contains(p.Id)).ToList()
+        };
+    }
+
+    private static string ClaveGrupoSimilitud(GrupoSimilitudProveedores grupo) =>
+        string.Join("|", grupo.Proveedores.Select(p => p.Id).OrderBy(id => id));
 
     private static int SincronizarFichas() =>
         App.Instance.Proveedores.SincronizarDesdeFichas(

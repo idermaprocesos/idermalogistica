@@ -52,7 +52,7 @@ public static class RegistroIngresosExportService
             hoja.Cell(fila, 3).Value = f.Nombre;
             hoja.Cell(fila, 4).Value = m.Fecha.ToLocalTime().DateTime;
             hoja.Cell(fila, 4).Style.DateFormat.Format = "dd/MM/yyyy HH:mm";
-            hoja.Cell(fila, 5).Value = m.EsSalida ? "Salida" : "Ingreso";
+            hoja.Cell(fila, 5).Value = m.EtiquetaTipo;
             hoja.Cell(fila, 6).Value = m.Lote;
             hoja.Cell(fila, 7).Value = m.FechaCaducidad?.ToString("dd/MM/yyyy") ?? string.Empty;
             hoja.Cell(fila, 8).Value = m.EsSalida ? -m.Cantidad : m.Cantidad;
@@ -202,7 +202,7 @@ public static class RegistroIngresosExportService
                 Celda(tabla, linea.Ficha.Codigo, fondo);
                 Celda(tabla, linea.Ficha.Nombre, fondo);
                 Celda(tabla, linea.Movimiento.Fecha.ToLocalTime().ToString("dd/MM/yyyy HH:mm"), fondo);
-                Celda(tabla, linea.Movimiento.EsSalida ? "Salida" : "Ingreso", fondo);
+                Celda(tabla, linea.Movimiento.EtiquetaTipo, fondo);
                 Celda(tabla, $"{(linea.Movimiento.EsSalida ? "-" : "+")}{linea.Movimiento.Cantidad:0.##} {linea.Ficha.UnidadMedida}".Trim(), fondo);
                 Celda(tabla, $"{linea.Movimiento.ExistenciaResultante:0.##}", fondo);
                 Celda(tabla, $"{linea.Movimiento.TipoDocumento} {linea.Movimiento.NumeroDocumento}".Trim(), fondo);
@@ -225,7 +225,7 @@ public static class RegistroIngresosExportService
             col.Item().Text($"RECIBO · {m.DocumentoResumen}").FontSize(12).Bold().FontColor(Navy);
             col.Item().Text($"{f.Codigo} · {f.Nombre} · {f.AreaTitulo}").FontSize(9).FontColor(Gris);
             col.Item().Text(
-                    $"{m.Fecha.ToLocalTime():dd/MM/yyyy HH:mm}  ·  {(m.EsSalida ? "Salida" : "Ingreso")}  ·  " +
+                    $"{m.Fecha.ToLocalTime():dd/MM/yyyy HH:mm}  ·  {m.EtiquetaTipo}  ·  " +
                     $"{(m.EsSalida ? "-" : "+")}{m.Cantidad:0.##} {f.UnidadMedida}".Trim())
                 .FontSize(9);
             if (!string.IsNullOrWhiteSpace(m.Nota))

@@ -5,9 +5,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
-using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Navigation;
-using Windows.UI;
 using IdermaFichas.Helpers;
 using IdermaFichas.Models;
 using IdermaFichas.Services;
@@ -38,14 +36,20 @@ public sealed partial class RegistroPage : Page, IVistaInventario
     private bool _ignorarClicHistorial;
     private int _anclaMovimientos = -1;
     private Guid? _movimientoEnEdicion;
+    private bool _actualizandoPartida;
+    private bool _ajustandoFecha;
+    private bool _caducidadVacia = true;
     private bool _quitarReciboExistente;
-    private static readonly SolidColorBrush PincelIngreso = new(Color.FromArgb(255, 61, 214, 140));
-    private static readonly SolidColorBrush PincelSalida = new(Color.FromArgb(255, 232, 92, 92));
-    private static readonly SolidColorBrush PincelNeutro = new(Color.FromArgb(180, 255, 255, 255));
-
     public RegistroPage()
     {
         InitializeComponent();
+        FechaCaducidadMovimiento.DateChanged += (_, _) =>
+        {
+            if (!_ajustandoFecha)
+            {
+                _caducidadVacia = false;
+            }
+        };
         _relojBusqueda.Tick += (_, _) =>
         {
             _relojBusqueda.Stop();
@@ -69,6 +73,8 @@ public sealed partial class RegistroPage : Page, IVistaInventario
         ComboCaducidad.SelectedIndex = 0;
         ComboTipoMovimiento.ItemsSource = new[] { "Ingreso", "Salida" };
         ComboTipoMovimiento.SelectedIndex = 0;
+        ComboAlcanceHistorial.ItemsSource = new[] { "Todos", "Solo ingresos", "Solo egresos", "Solo mermas" };
+        ComboAlcanceHistorial.SelectedIndex = 0;
         ComboTipoDocumento.ItemsSource = new[] { "Boleta", "Factura" };
         ComboTipoDocumento.SelectedIndex = 0;
         ActualizarFormularioMovimiento();
@@ -190,13 +196,17 @@ public sealed partial class RegistroPage : Page, IVistaInventario
     private void ConstruirChips()
     {
         _actualizandoFiltros = true;
-        PanelUnidades.Children.Clear();
+        PanelUnidadesFila1.Children.Clear();
+        PanelUnidadesFila2.Children.Clear();
         var repo = App.Instance.Repositorio;
 
-        PanelUnidades.Children.Add(CrearChip("Todas las unidades", null, false, !_unidad.HasValue && !_sinArea, repo.Todas.Count));
+        var chips = new List<ToggleButton>
+        {
+            CrearChip("Todas las unidades", null, false, !_unidad.HasValue && !_sinArea, repo.Todas.Count)
+        };
         foreach (var area in AreasOperativas.Todas)
         {
-            PanelUnidades.Children.Add(CrearChip(
+            chips.Add(CrearChip(
                 area.Nombre,
                 area.Id,
                 false,
@@ -204,7 +214,14 @@ public sealed partial class RegistroPage : Page, IVistaInventario
                 repo.Contar(area.Id)));
         }
 
-        PanelUnidades.Children.Add(CrearChip("Sin área", null, true, _sinArea, repo.Contar(null)));
+        chips.Add(CrearChip("Sin área", null, true, _sinArea, repo.Contar(null)));
+
+        var mitad = (chips.Count + 1) / 2;
+        for (var i = 0; i < chips.Count; i++)
+        {
+            (i < mitad ? PanelUnidadesFila1 : PanelUnidadesFila2).Children.Add(chips[i]);
+        }
+
         _actualizandoFiltros = false;
     }
 
@@ -424,12 +441,13 @@ public sealed partial class RegistroPage : Page, IVistaInventario
                     TotalSalidas = $"-{salidas.ToString("0.##", Cultura)}",
                     UltimoIngreso = ultimo is null
                         ? "Sin movimientos en el periodo"
-                        : ultimo.Fecha.ToLocalTime().ToString("dd/MM/yyyy", Cultura),
+                        : TextoFecha(ultimo.Fecha)[..10],
                     EstaMarcada = _marcadas.Contains(ficha.Id)
                 };
             })
             .ToList();
 
+        _ignorarClicLista = true;
         ListaProductos.ItemsSource = _visibles;
         _anclaSeleccion = -1;
         TituloLista.Text = _sinArea
@@ -441,7 +459,7 @@ public sealed partial class RegistroPage : Page, IVistaInventario
             ? "Productos que no pertenecen a ninguna unidad."
             : _unidad is Guid unidad
                 ? $"Historial de ingresos de {AreasOperativas.Titulo(unidad)}."
-                : "Busque por cualquier dato de la ficha y pulse un producto para ver su histórico.";
+                : "Busque por código, nombre o categoría y pulse un producto para ver su histórico.";
 
         ActualizarChipsEstado();
         ActualizarResumenMarcas();
@@ -449,7 +467,7 @@ public sealed partial class RegistroPage : Page, IVistaInventario
         if (_fichaSeleccionada is Guid seleccion)
         {
             var coincide = _visibles.FirstOrDefault(i => i.Id == seleccion);
-            MostrarDetalle(coincide?.Ficha);
+            MostrarDetalle(coincide?.Ficha, cargarNube: false);
             if (coincide is not null)
             {
                 ListaProductos.ScrollIntoView(coincide);
@@ -459,6 +477,8 @@ public sealed partial class RegistroPage : Page, IVistaInventario
         {
             MostrarDetalle(null);
         }
+
+        _ignorarClicLista = false;
     }
 
     private void RellenarListas(IReadOnlyList<FichaTecnica> origen)
@@ -523,7 +543,7 @@ public sealed partial class RegistroPage : Page, IVistaInventario
         }
 
         _fichaSeleccionada = item.Id;
-        MostrarDetalle(item.Ficha);
+        MostrarDetalle(item.Ficha, cargarNube: true);
     }
 
     private void VerEnCatalogo_Click(object sender, RoutedEventArgs e)
@@ -640,7 +660,19 @@ public sealed partial class RegistroPage : Page, IVistaInventario
             : $"{marcadas} seleccionada(s). La exportación usa el año o los meses filtrados.";
     }
 
-    private void MostrarDetalle(FichaTecnica? ficha)
+    private void MostrarDetalle(FichaTecnica? ficha, bool cargarNube = false)
+    {
+        try
+        {
+            PintarDetalle(ficha, cargarNube);
+        }
+        catch (Exception ex)
+        {
+            Mostrar($"No se pudo abrir el historial: {ex.Message}", InfoBarSeverity.Error);
+        }
+    }
+
+    private void PintarDetalle(FichaTecnica? ficha, bool cargarNube)
     {
         TextoPeriodo.Text = $"Periodo: {PeriodoActual()}";
         if (_movimientoEnEdicion is Guid enEdicion)
@@ -681,7 +713,10 @@ public sealed partial class RegistroPage : Page, IVistaInventario
             : $"Existencia actual: {ficha.Existencia.ToString("0.##", Cultura)}{unidad}";
         TextoIngresosProducto.Text = $"+{ingresos.ToString("0.##", Cultura)}{unidad}";
         TextoSalidasProducto.Text = $"-{salidas.ToString("0.##", Cultura)}{unidad}";
-        PanelIngreso.Visibility = Visibility.Visible;
+        if (cargarNube)
+        {
+            _ = CompletarHistorialAsync(ficha);
+        }
 
         if (movimientos.Count == 0)
         {
@@ -695,13 +730,16 @@ public sealed partial class RegistroPage : Page, IVistaInventario
                     ReciboTexto = "",
                     CantidadTexto = "—",
                     ResultadoTexto = "",
-                    PincelCantidad = PincelNeutro
+                    VisibilidadIngreso = Visibility.Collapsed,
+                    VisibilidadSalida = Visibility.Collapsed,
+                    VisibilidadNeutro = Visibility.Visible
                 }
             ];
             ListaHistorial.ItemsSource = _movimientosVisibles;
             ActualizarAccionesMovimientos();
             ActualizarBotonBorrarLotes(ficha);
             CargarOpcionesPartida(ficha);
+            PanelIngreso.Visibility = Visibility.Visible;
             return;
         }
 
@@ -710,7 +748,7 @@ public sealed partial class RegistroPage : Page, IVistaInventario
         {
             Id = m.Id,
             EsMarcable = true,
-            FechaTexto = m.Fecha.ToLocalTime().ToString("dd/MM/yyyy HH:mm", Cultura),
+            FechaTexto = TextoFecha(m.Fecha),
             Origen = m.DocumentoResumen,
             Nota = m.Nota,
             ReciboTexto = string.IsNullOrWhiteSpace(m.NombreRecibo) && ReciboMovimientoService.RutaEfectiva(m) is null
@@ -718,7 +756,9 @@ public sealed partial class RegistroPage : Page, IVistaInventario
                 : $"Recibo: {(string.IsNullOrWhiteSpace(m.NombreRecibo) ? Path.GetFileName(ReciboMovimientoService.RutaEfectiva(m)) : m.NombreRecibo)}",
             CantidadTexto = $"{(m.EsSalida ? "-" : "+")}{m.Cantidad.ToString("0.##", Cultura)}{unidad}",
             ResultadoTexto = $"Quedaron {m.ExistenciaResultante.ToString("0.##", Cultura)}{unidad}",
-            PincelCantidad = m.EsSalida ? PincelSalida : PincelIngreso,
+            VisibilidadIngreso = m.EsSalida ? Visibility.Collapsed : Visibility.Visible,
+            VisibilidadSalida = m.EsSalida ? Visibility.Visible : Visibility.Collapsed,
+            VisibilidadNeutro = Visibility.Collapsed,
             VisibilidadMarca = marca,
             EstaMarcada = _marcadasMovimientos.Contains(m.Id)
         }).ToList();
@@ -726,6 +766,46 @@ public sealed partial class RegistroPage : Page, IVistaInventario
         ActualizarAccionesMovimientos();
         ActualizarBotonBorrarLotes(ficha);
         CargarOpcionesPartida(ficha);
+        PanelIngreso.Visibility = Visibility.Visible;
+    }
+
+    private static string TextoFecha(DateTimeOffset fecha)
+    {
+        try
+        {
+            return fecha.ToLocalTime().ToString("dd/MM/yyyy HH:mm", Cultura);
+        }
+        catch (ArgumentException)
+        {
+            return fecha.ToString("dd/MM/yyyy HH:mm", Cultura);
+        }
+    }
+
+    private async Task CompletarHistorialAsync(FichaTecnica ficha)
+    {
+        var cola = DispatcherQueue;
+        bool cambio;
+        try
+        {
+            cambio = await ModulosNube.CompletarRegistroAsync(ficha.Id);
+        }
+        catch
+        {
+            return;
+        }
+
+        if (!cambio || _fichaSeleccionada != ficha.Id)
+        {
+            return;
+        }
+
+        cola.TryEnqueue(() =>
+        {
+            if (_fichaSeleccionada == ficha.Id)
+            {
+                MostrarDetalle(App.Instance.Repositorio.Obtener(ficha.Id) ?? ficha);
+            }
+        });
     }
 
     private async void ExportarHistorial_Click(object sender, RoutedEventArgs e)
@@ -736,8 +816,9 @@ public sealed partial class RegistroPage : Page, IVistaInventario
             return;
         }
 
-        var lineas = LineasDe([ficha]);
-        await ExportarLineasAsync($"ingresos-{Sanitizar(ficha.Codigo)}", lineas);
+        var alcance = AlcanceExportacion(ComboAlcanceHistorial);
+        var lineas = FiltrarPorAlcance(LineasDe([ficha]), alcance);
+        await ExportarLineasAsync($"{PrefijoExportacion(alcance)}-{Sanitizar(ficha.Codigo)}", lineas, alcance);
     }
 
     private async void ExportarSeleccionadas_Click(object sender, RoutedEventArgs e)
@@ -749,7 +830,40 @@ public sealed partial class RegistroPage : Page, IVistaInventario
             return;
         }
 
-        await ExportarLineasAsync($"ingresos-seleccion-{DateTime.Now:yyyyMMdd}", LineasDe(fichas));
+        const string alcance = "Todos";
+        await ExportarLineasAsync(
+            $"{PrefijoExportacion(alcance)}-seleccion-{DateTime.Now:yyyyMMdd}",
+            FiltrarPorAlcance(LineasDe(fichas), alcance),
+            alcance);
+    }
+
+    private static string AlcanceExportacion(ComboBox combo) =>
+        combo.SelectedItem as string ?? "Todos";
+
+    private static string PrefijoExportacion(string alcance) => alcance switch
+    {
+        "Solo ingresos" => "ingresos",
+        "Solo egresos" => "egresos",
+        "Solo mermas" => "mermas",
+        _ => "movimientos"
+    };
+
+    private static List<LineaRegistroIngreso> FiltrarPorAlcance(
+        List<LineaRegistroIngreso> lineas,
+        string alcance) => alcance switch
+    {
+        "Solo ingresos" => lineas.Where(l => !l.Movimiento.EsSalida).ToList(),
+        "Solo egresos" => lineas.Where(l => l.Movimiento.EsSalida).ToList(),
+        "Solo mermas" => lineas.Where(l => l.Movimiento.EsMerma).ToList(),
+        _ => lineas
+    };
+
+    private string DescribirExportacion(string alcance)
+    {
+        var periodo = PeriodoActual();
+        return alcance is "Solo ingresos" or "Solo egresos" or "Solo mermas"
+            ? $"{periodo} · {alcance.ToLower(Cultura)}"
+            : periodo;
     }
 
     private List<LineaRegistroIngreso> LineasDe(IEnumerable<FichaTecnica> fichas)
@@ -770,17 +884,28 @@ public sealed partial class RegistroPage : Page, IVistaInventario
         return lineas;
     }
 
-    private async Task ExportarLineasAsync(string nombre, IReadOnlyList<LineaRegistroIngreso> lineas)
+    private async Task ExportarLineasAsync(
+        string nombre,
+        IReadOnlyList<LineaRegistroIngreso> lineas,
+        string alcance)
     {
         if (lineas.Count == 0)
         {
-            Mostrar("No hay ingresos en el periodo elegido para exportar.", InfoBarSeverity.Warning);
+            var vacio = alcance switch
+            {
+                "Solo ingresos" => "No hay ingresos en el periodo elegido para exportar.",
+                "Solo egresos" => "No hay egresos en el periodo elegido para exportar.",
+                "Solo mermas" => "No hay mermas en el periodo elegido para exportar.",
+                _ => "No hay movimientos en el periodo elegido para exportar."
+            };
+            Mostrar(vacio, InfoBarSeverity.Warning);
             return;
         }
 
         try
         {
-            var resultado = await ExcelUi.ExportarIngresosAsync(nombre, lineas, PeriodoActual());
+            var descripcion = DescribirExportacion(alcance);
+            var resultado = await ExcelUi.ExportarIngresosAsync(nombre, lineas, descripcion);
             if (resultado is null)
             {
                 return;
@@ -790,7 +915,7 @@ public sealed partial class RegistroPage : Page, IVistaInventario
             var extra = carpetaRecibos is null
                 ? ""
                 : $" Recibos copiados en «{Path.GetFileName(carpetaRecibos)}».";
-            Mostrar($"Se exportaron {lineas.Count} movimiento(s) ({PeriodoActual()}).{extra}", InfoBarSeverity.Success);
+            Mostrar($"Se exportaron {lineas.Count} movimiento(s) ({descripcion}).{extra}", InfoBarSeverity.Success);
             await ExcelUi.OfrecerAbrirAsync(XamlRoot, resultado);
         }
         catch (Exception ex)
@@ -804,8 +929,6 @@ public sealed partial class RegistroPage : Page, IVistaInventario
         var limpio = new string(valor.Where(c => char.IsLetterOrDigit(c) || c is '-' or '_').ToArray());
         return string.IsNullOrWhiteSpace(limpio) ? "producto" : limpio;
     }
-
-    private bool _actualizandoPartida;
 
     private void ComboTipoMovimiento_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
@@ -826,12 +949,12 @@ public sealed partial class RegistroPage : Page, IVistaInventario
         if (opcion.EsNueva)
         {
             CajaLoteMovimiento.Text = string.Empty;
-            FechaCaducidadMovimiento.Date = null;
+            AsignarFechaCalendario(null);
             return;
         }
 
         CajaLoteMovimiento.Text = opcion.Lote;
-        FechaCaducidadMovimiento.Date = opcion.Fecha;
+        AsignarFechaCalendario(opcion.Fecha);
     }
 
     private void CargarOpcionesPartida(FichaTecnica? ficha, Guid? seleccionar = null)
@@ -894,16 +1017,39 @@ public sealed partial class RegistroPage : Page, IVistaInventario
         if (ComboPartidaMovimiento.SelectedItem is OpcionPartidaMovimiento actual && !actual.EsNueva)
         {
             CajaLoteMovimiento.Text = actual.Lote;
-            FechaCaducidadMovimiento.Date = actual.Fecha;
+            AsignarFechaCalendario(actual.Fecha);
         }
         else if (!salida)
         {
             CajaLoteMovimiento.Text = string.Empty;
-            FechaCaducidadMovimiento.Date = null;
+            AsignarFechaCalendario(null);
         }
 
         _actualizandoPartida = false;
         ActualizarFormularioMovimiento();
+    }
+
+    private void AsignarFechaCalendario(DateTimeOffset? fecha)
+    {
+        if (FechaCaducidadMovimiento is null)
+        {
+            return;
+        }
+
+        var visible = FechaCalendario.ParaPicker(fecha);
+        _caducidadVacia = visible is null;
+        _ajustandoFecha = true;
+        try
+        {
+            FechaCaducidadMovimiento.Date = visible ?? FechaCalendario.ParaPickerObligatorio(null);
+        }
+        catch (Exception)
+        {
+        }
+        finally
+        {
+            _ajustandoFecha = false;
+        }
     }
 
     private (Guid? Id, string Lote, DateTimeOffset? Fecha, bool Automatico) DatosPartidaFormulario()
@@ -914,7 +1060,7 @@ public sealed partial class RegistroPage : Page, IVistaInventario
         }
 
         var lote = CajaLoteMovimiento.Text?.Trim() ?? string.Empty;
-        var fecha = FechaCaducidadMovimiento.Date;
+        var fecha = _caducidadVacia ? null : FechaCaducidadMovimiento.Date;
         Guid? id = ComboPartidaMovimiento.SelectedItem is OpcionPartidaMovimiento { EsNueva: false } opcion
             ? opcion.Id
             : null;
@@ -1384,7 +1530,7 @@ public sealed partial class RegistroPage : Page, IVistaInventario
         }
 
         CajaLoteMovimiento.Text = actual.Lote;
-        FechaCaducidadMovimiento.Date = actual.FechaCaducidad;
+        AsignarFechaCalendario(actual.FechaCaducidad);
         if (!string.IsNullOrWhiteSpace(actual.NombreRecibo) || ReciboMovimientoService.RutaEfectiva(actual) is not null)
         {
             TextoRecibo.Text = $"Recibo de este movimiento: {(string.IsNullOrWhiteSpace(actual.NombreRecibo) ? "archivo adjunto" : actual.NombreRecibo)}";
@@ -1577,10 +1723,7 @@ public sealed partial class RegistroPage : Page, IVistaInventario
             CajaLoteMovimiento.Text = string.Empty;
         }
 
-        if (FechaCaducidadMovimiento is not null)
-        {
-            FechaCaducidadMovimiento.Date = null;
-        }
+        AsignarFechaCalendario(null);
 
         LimpiarReciboPendiente();
         ActualizarFormularioMovimiento();
@@ -1627,6 +1770,8 @@ public sealed class OpcionPartidaMovimiento
     public DateTimeOffset? Fecha { get; init; }
     public double Disponible { get; init; }
     public required string Texto { get; init; }
+
+    public override string ToString() => Texto;
 }
 
 public sealed class ProductoRegistroItem : INotifyPropertyChanged, IItemMarcable
@@ -1676,7 +1821,11 @@ public sealed class MovimientoRegistroItem : INotifyPropertyChanged, IItemMarcab
     public string ReciboTexto { get; init; } = string.Empty;
     public required string CantidadTexto { get; init; }
     public required string ResultadoTexto { get; init; }
-    public required Brush PincelCantidad { get; init; }
+    public Visibility VisibilidadIngreso { get; init; } = Visibility.Collapsed;
+
+    public Visibility VisibilidadSalida { get; init; } = Visibility.Collapsed;
+
+    public Visibility VisibilidadNeutro { get; init; } = Visibility.Collapsed;
 
     public Visibility VisibilidadMarca
     {

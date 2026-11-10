@@ -1,4 +1,5 @@
 using Microsoft.UI.Xaml;
+using Microsoft.Windows.AppLifecycle;
 using IdermaFichas.Models;
 using IdermaFichas.Services;
 
@@ -11,6 +12,24 @@ public partial class App : Application
     public App()
     {
         InitializeComponent();
+        UnhandledException += (_, e) =>
+        {
+            try
+            {
+                var carpeta = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "IdermaCapilar");
+                Directory.CreateDirectory(carpeta);
+                File.AppendAllText(
+                    Path.Combine(carpeta, "fallo-ui.txt"),
+                    $"{DateTime.Now:yyyy-MM-dd HH:mm:ss}{Environment.NewLine}{e.Exception}{Environment.NewLine}{Environment.NewLine}");
+            }
+            catch
+            {
+            }
+
+            e.Handled = true;
+        };
         try
         {
             Catalogos.Cargar();
@@ -30,6 +49,7 @@ public partial class App : Application
         }
 
         InventarioNube.Preparar(Repositorio);
+        InventarioNube.Iniciar(Repositorio, VistaLecturaInventario.Inventario);
 
         try
         {
@@ -80,6 +100,36 @@ public partial class App : Application
 
         try
         {
+            OrdenesServicio.Cargar();
+        }
+        catch
+        {
+            OrdenesServicio = new OrdenesServicioRepository();
+            OrdenesServicio.Cargar();
+        }
+
+        try
+        {
+            Mermas.Cargar();
+        }
+        catch
+        {
+            Mermas = new MermaRepository();
+            Mermas.Cargar();
+        }
+
+        try
+        {
+            ControlMantenimiento.Cargar();
+        }
+        catch
+        {
+            ControlMantenimiento = new ControlMantenimientoRepository();
+            ControlMantenimiento.Cargar();
+        }
+
+        try
+        {
             Proveedores.Cargar();
         }
         catch
@@ -112,6 +162,12 @@ public partial class App : Application
     public HistorialPreciosRepository HistorialPrecios { get; private set; } = new();
 
     public OrdenesCompraRepository OrdenesCompra { get; private set; } = new();
+
+    public OrdenesServicioRepository OrdenesServicio { get; private set; } = new();
+
+    public MermaRepository Mermas { get; private set; } = new();
+
+    public ControlMantenimientoRepository ControlMantenimiento { get; private set; } = new();
 
     public ProveedoresRepository Proveedores { get; private set; } = new();
 
@@ -179,6 +235,36 @@ public partial class App : Application
 
         try
         {
+            Instance.OrdenesServicio.Cargar();
+        }
+        catch
+        {
+            Instance.OrdenesServicio = new OrdenesServicioRepository();
+            Instance.OrdenesServicio.Cargar();
+        }
+
+        try
+        {
+            Instance.Mermas.Cargar();
+        }
+        catch
+        {
+            Instance.Mermas = new MermaRepository();
+            Instance.Mermas.Cargar();
+        }
+
+        try
+        {
+            Instance.ControlMantenimiento.Cargar();
+        }
+        catch
+        {
+            Instance.ControlMantenimiento = new ControlMantenimientoRepository();
+            Instance.ControlMantenimiento.Cargar();
+        }
+
+        try
+        {
             Instance.Proveedores.Cargar();
         }
         catch
@@ -198,12 +284,33 @@ public partial class App : Application
         }
 
         Instance.MainAppWindow?.ActualizarMenuAreas();
+        AreasOperativasNube.Publicar();
+        CatalogosNube.Publicar();
         InventarioNube.ReemplazarCon(Instance.Repositorio);
     }
 
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {
+        try
+        {
+            DescuentoMerma.Asegurar(Mermas.Listar());
+        }
+        catch
+        {
+        }
+
         _window = new MainWindow();
         _window.Activate();
+        try
+        {
+            var activacion = AppInstance.GetCurrent().GetActivatedEventArgs();
+            if (activacion.Kind == ExtendedActivationKind.AppNotification)
+            {
+                AvisoWindowsSolicitudes.Recibir(activacion);
+            }
+        }
+        catch
+        {
+        }
     }
 }

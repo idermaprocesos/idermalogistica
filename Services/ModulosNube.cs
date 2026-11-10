@@ -1,5 +1,5 @@
-using Google.Apis.Auth.OAuth2;
 using Google.Cloud.Firestore;
+using Iderma.Core.Services;
 using IdermaFichas.Models;
 
 namespace IdermaFichas.Services;
@@ -10,7 +10,10 @@ public static class ModulosNube
     private static readonly SincronizadorNube Registro = new(BasesFirebase.Registro);
     private static readonly SincronizadorNube Precios = new(BasesFirebase.Precios);
     private static readonly SincronizadorNube Ordenes = new(BasesFirebase.Ordenes);
+    private static readonly SincronizadorNube OrdenesServicio = new(BasesFirebase.OrdenesServicio);
     private static readonly SincronizadorNube Proveedores = new(BasesFirebase.Proveedores);
+    private static readonly SincronizadorNube Merma = new(BasesFirebase.Merma);
+    private static readonly SincronizadorNube Mantenimiento = new(BasesFirebase.Mantenimiento);
     private static readonly object _apertura = new();
     private static readonly Dictionary<string, Task<bool>> _conexiones = new(StringComparer.Ordinal);
     private static readonly HashSet<string> _escuchar = new(StringComparer.Ordinal);
@@ -21,8 +24,6 @@ public static class ModulosNube
     private static int _sinReflejo;
     private static string _estado = string.Empty;
     private static string? _aviso;
-    private static GoogleCredential? _credencial;
-    private static FirestoreDb? _predeterminada;
 
     public static string Estado => _estado;
 
@@ -38,7 +39,10 @@ public static class ModulosNube
             "registro" => BasesFirebase.Registro,
             "historial-precios" => BasesFirebase.Precios,
             "orden-compra" => BasesFirebase.Ordenes,
+            "orden-servicio" => BasesFirebase.OrdenesServicio,
             "proveedores" => BasesFirebase.Proveedores,
+            "merma" => BasesFirebase.Merma,
+            "mantenimiento" => BasesFirebase.Mantenimiento,
             _ => null
         };
 
@@ -112,6 +116,23 @@ public static class ModulosNube
         Precios.Publicar([], [id.ToString("D")], false);
     }
 
+    public static Task<bool> CompletarRegistroAsync(Guid fichaId) =>
+        CompletarHistorialAsync(BasesFirebase.Registro, fichaId);
+
+    public static Task<bool> CompletarPreciosAsync(Guid fichaId) =>
+        CompletarHistorialAsync(BasesFirebase.Precios, fichaId);
+
+    private static async Task<bool> CompletarHistorialAsync(string id, Guid fichaId)
+    {
+        Abrir(id);
+        if (!await Conexion(id))
+        {
+            return false;
+        }
+
+        return await Modulo(id).Sync.CargarFichaAsync(fichaId);
+    }
+
     public static void PublicarOrden(OrdenCompraRegistrada orden)
     {
         Ordenes.Publicar([new DocumentoNube(orden.Id.ToString("D"), ModulosDocumento.CrearOrden(orden))], [], false);
@@ -120,6 +141,51 @@ public static class ModulosNube
     public static void EliminarOrden(Guid id)
     {
         Ordenes.Publicar([], [id.ToString("D")], false);
+    }
+
+    public static void PublicarOrdenServicio(OrdenServicioRegistrada orden)
+    {
+        OrdenesServicio.Publicar(
+            [new DocumentoNube(orden.Id.ToString("D"), ModulosDocumento.CrearOrdenServicio(orden))],
+            [],
+            false);
+    }
+
+    public static void EliminarOrdenServicio(Guid id)
+    {
+        OrdenesServicio.Publicar([], [id.ToString("D")], false);
+    }
+
+    public static void PublicarMerma(IReadOnlyList<MermaRegistrada> registros)
+    {
+        var documentos = registros
+            .Where(m => m.Id != Guid.Empty)
+            .Select(m => new DocumentoNube(m.Id.ToString("D"), ModulosDocumento.CrearMerma(m)))
+            .ToList();
+        if (documentos.Count == 0)
+        {
+            return;
+        }
+
+        Merma.Publicar(documentos, [], false);
+    }
+
+    public static void EliminarMerma(Guid id)
+    {
+        if (id == Guid.Empty)
+        {
+            return;
+        }
+
+        Merma.Publicar([], [id.ToString("D")], false);
+    }
+
+    public static void PublicarControlMantenimiento()
+    {
+        Mantenimiento.Publicar(
+            CopiarControlMantenimiento(),
+            [ControlMantenimientoRepository.IdDocumentoRangos],
+            false);
     }
 
     public static void PublicarProveedores(IReadOnlyList<ProveedorRegistro> proveedores)
@@ -203,7 +269,7 @@ public static class ModulosNube
         var modulo = Modulo(id);
         try
         {
-            var credencial = await CredencialAsync();
+            var credencial = await ConexionFirebase.CredencialAsync();
             if (credencial is null)
             {
                 QuitarConexion(id);
@@ -215,29 +281,39 @@ public static class ModulosNube
                 return false;
             }
 
-            var independiente = await BasesFirebase.AsegurarUnaAsync(credencial, id, QuiereEscucha(id) ? Reportar : static _ => { });
+            var historial = id is BasesFirebase.Registro or BasesFirebase.Precios;
+            var independiente = false;
+            if (!historial)
+            {
+                independiente = await BasesFirebase.AsegurarUnaAsync(credencial, id, QuiereEscucha(id) ? Reportar : static _ => { });
+            }
+
             lock (_apertura)
             {
                 _independiente[id] = independiente;
             }
 
-            FirestoreDb db;
-            if (independiente)
+            FirestoreDb? db = independiente
+                ? await ConexionFirebase.AbrirAsync(id)
+                : await ConexionFirebase.AbrirAsync();
+            if (db is null)
             {
-                db = await new FirestoreDbBuilder
+                QuitarConexion(id);
+                if (QuiereEscucha(id))
                 {
-                    ProjectId = BasesFirebase.Proyecto,
-                    DatabaseId = id,
-                    Credential = credencial
-                }.BuildAsync();
-            }
-            else
-            {
-                db = await PredeterminadaAsync(credencial);
+                    Reportar("Módulos locales: no se encontraron las credenciales de Firebase.");
+                }
+
+                return false;
             }
 
-            var historial = id is BasesFirebase.Registro or BasesFirebase.Precios;
-            modulo.Sync.Preparar(db, modulo.Copiar, modulo.Aplicar, historial);
+            IReadOnlyList<string>? campos = id switch
+            {
+                BasesFirebase.Registro => ModulosDocumento.CamposMovimiento,
+                BasesFirebase.Precios => ModulosDocumento.CamposPrecio,
+                _ => null
+            };
+            modulo.Sync.Preparar(db, modulo.Copiar, modulo.Aplicar, historial, campos);
             return true;
         }
         catch (Exception ex)
@@ -311,42 +387,6 @@ public static class ModulosNube
         PublicarEstado();
     }
 
-    private static Task<GoogleCredential?> CredencialAsync()
-    {
-        if (_credencial is not null)
-        {
-            return Task.FromResult<GoogleCredential?>(_credencial);
-        }
-
-        var credenciales = BuscarCredenciales();
-        if (credenciales is null)
-        {
-            return Task.FromResult<GoogleCredential?>(null);
-        }
-
-        var credencial = CredentialFactory.FromFile<ServiceAccountCredential>(credenciales)
-            .ToGoogleCredential()
-            .CreateScoped("https://www.googleapis.com/auth/cloud-platform");
-        _credencial = credencial;
-        return Task.FromResult<GoogleCredential?>(credencial);
-    }
-
-    private static async Task<FirestoreDb> PredeterminadaAsync(GoogleCredential credencial)
-    {
-        if (_predeterminada is not null)
-        {
-            return _predeterminada;
-        }
-
-        var db = await new FirestoreDbBuilder
-        {
-            ProjectId = BasesFirebase.Proyecto,
-            Credential = credencial
-        }.BuildAsync();
-        _predeterminada = db;
-        return db;
-    }
-
     private static (SincronizadorNube Sync, string Nombre, Func<IReadOnlyList<DocumentoNube>> Copiar, Action<IReadOnlyList<DocumentoNube>, IReadOnlyList<string>, bool> Aplicar) Modulo(string id) =>
         id switch
         {
@@ -354,6 +394,9 @@ public static class ModulosNube
             BasesFirebase.Registro => (Registro, "Registro", CopiarRegistro, AplicarRegistro),
             BasesFirebase.Precios => (Precios, "Historial de precios", CopiarPrecios, AplicarPrecios),
             BasesFirebase.Ordenes => (Ordenes, "Órdenes de compra", CopiarOrdenes, AplicarOrdenes),
+            BasesFirebase.OrdenesServicio => (OrdenesServicio, "Órdenes de servicio", CopiarOrdenesServicio, AplicarOrdenesServicio),
+            BasesFirebase.Merma => (Merma, "Merma", CopiarMerma, AplicarMerma),
+            BasesFirebase.Mantenimiento => (Mantenimiento, "Mantenimiento", CopiarControlMantenimiento, AplicarControlMantenimiento),
             _ => (Proveedores, "Proveedores", CopiarProveedores, AplicarProveedores)
         };
 
@@ -508,6 +551,49 @@ public static class ModulosNube
         }
     }
 
+    private static void AplicarOrdenesServicio(IReadOnlyList<DocumentoNube> documentos, IReadOnlyList<string> eliminados, bool completo)
+    {
+        var ordenes = documentos.Select(ModulosDocumento.LeerOrdenServicio).OfType<OrdenServicioRegistrada>().ToList();
+        var ids = eliminados.Select(id => Guid.TryParse(id, out var valor) ? valor : Guid.Empty).Where(id => id != Guid.Empty).ToList();
+        if (App.Instance.OrdenesServicio.AplicarDesdeNube(ordenes, ids, completo))
+        {
+            DatosCambiados?.Invoke();
+        }
+    }
+
+    private static void AplicarMerma(IReadOnlyList<DocumentoNube> documentos, IReadOnlyList<string> eliminados, bool completo)
+    {
+        var previos = App.Instance.Mermas.Listar().Select(m => m.Id).ToHashSet();
+        var registros = documentos.Select(ModulosDocumento.LeerMerma).OfType<MermaRegistrada>().ToList();
+        var ids = eliminados.Select(id => Guid.TryParse(id, out var valor) ? valor : Guid.Empty).Where(id => id != Guid.Empty).ToList();
+        if (App.Instance.Mermas.AplicarDesdeNube(registros, ids, completo))
+        {
+            var nuevas = registros.Where(m => !previos.Contains(m.Id)).ToList();
+            DescuentoMerma.Asegurar(nuevas);
+            DatosCambiados?.Invoke();
+        }
+    }
+
+    private static void AplicarControlMantenimiento(IReadOnlyList<DocumentoNube> documentos, IReadOnlyList<string> eliminados, bool completo)
+    {
+        var equipos = documentos.Select(ModulosDocumento.LeerEquipoControl).OfType<EquipoControl>().ToList();
+        var rangosDoc = documentos.FirstOrDefault(d => d.Id == ControlMantenimientoRepository.IdDocumentoRangos);
+        var heredados = rangosDoc is null ? null : ModulosDocumento.LeerRangosControl(rangosDoc);
+        foreach (var equipo in equipos)
+        {
+            equipo.NormalizarPlazo(heredados);
+        }
+
+        var ids = eliminados
+            .Select(id => Guid.TryParse(id, out var valor) ? valor : Guid.Empty)
+            .Where(id => id != Guid.Empty)
+            .ToList();
+        if (App.Instance.ControlMantenimiento.AplicarDesdeNube(equipos, ids, completo))
+        {
+            DatosCambiados?.Invoke();
+        }
+    }
+
     private static void AplicarProveedores(IReadOnlyList<DocumentoNube> documentos, IReadOnlyList<string> eliminados, bool completo)
     {
         var proveedores = documentos.Select(ModulosDocumento.LeerProveedor).OfType<ProveedorRegistro>().ToList();
@@ -568,6 +654,24 @@ public static class ModulosNube
             .Select(o => new DocumentoNube(o.Id.ToString("D"), ModulosDocumento.CrearOrden(o)))
             .ToList();
 
+    private static IReadOnlyList<DocumentoNube> CopiarOrdenesServicio() =>
+        App.Instance.OrdenesServicio.Listar()
+            .Select(o => new DocumentoNube(o.Id.ToString("D"), ModulosDocumento.CrearOrdenServicio(o)))
+            .ToList();
+
+    private static IReadOnlyList<DocumentoNube> CopiarMerma() =>
+        App.Instance.Mermas.Listar()
+            .Select(m => new DocumentoNube(m.Id.ToString("D"), ModulosDocumento.CrearMerma(m)))
+            .ToList();
+
+    private static IReadOnlyList<DocumentoNube> CopiarControlMantenimiento()
+    {
+        return App.Instance.ControlMantenimiento.Listar()
+            .Where(e => e.Id != Guid.Empty)
+            .Select(e => new DocumentoNube(e.Id.ToString("D"), ModulosDocumento.CrearEquipoControl(e)))
+            .ToList();
+    }
+
     private static IReadOnlyList<DocumentoNube> CopiarProveedores() => CopiarProveedores(Fichas());
 
     private static IReadOnlyList<DocumentoNube> CopiarProveedores(IReadOnlyList<FichaTecnica> fichas) =>
@@ -579,29 +683,4 @@ public static class ModulosNube
 
     private static FichaTecnica? Buscar(IReadOnlyList<FichaTecnica> fichas, Guid id) =>
         fichas.FirstOrDefault(f => f.Id == id);
-
-    private static string? BuscarCredenciales()
-    {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null)
-        {
-            var cred = Path.Combine(dir.FullName, "cred");
-            if (Directory.Exists(cred))
-            {
-                var archivo = Directory.GetFiles(cred, "*firebase-adminsdk*.json").FirstOrDefault();
-                if (archivo is not null)
-                {
-                    return archivo;
-                }
-            }
-
-            dir = dir.Parent;
-        }
-
-        var appData = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "IdermaCapilar",
-            "firebase-adminsdk.json");
-        return File.Exists(appData) ? appData : null;
-    }
 }

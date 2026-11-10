@@ -10,7 +10,10 @@
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
@@ -25,7 +28,7 @@
                 <TextBlock FontSize="20" FontWeight="SemiBold" Text="Orden de compra mensual" />
                 <TextBlock
                     Opacity="0.72"
-                    Text="FO0LOG015 · Iderma Capilar. Elija el tipo de precio de cada producto y exporte en PDF o Excel."
+                    Text="FO0LOG015 · Iderma Capilar. Revise cantidades y precios, indique el flete y exporte en PDF o Excel."
                     TextWrapping="Wrap" />
             </StackPanel>
             <TextBlock
@@ -55,11 +58,12 @@
                 <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
             <TextBox x:Name="CajaMes" Header="Mes / Año" />
-            <DatePicker
-                x:Name="FechaElaboracion"
+            <TextBox
+                x:Name="TextoFechaElaboracion"
                 Grid.Column="1"
-                HorizontalAlignment="Stretch"
-                Header="Fecha de elaboración" />
+                Header="Fecha de elaboración"
+                IsReadOnly="True"
+                IsTabStop="False" />
             <TextBox
                 x:Name="CajaCobertura"
                 Grid.Column="2"
@@ -90,9 +94,22 @@
                 TextWrapping="Wrap" />
         </Grid>
 
+        <AutoSuggestBox
+            x:Name="BuscarInventario"
+            Grid.Row="3"
+            Margin="0,0,0,8"
+            PlaceholderText="Agregar producto del inventario: código o nombre"
+            QueryIcon="Find"
+            SuggestionChosen="BuscarInventario_SuggestionChosen"
+            TextChanged="BuscarInventario_TextChanged" />
+
+        <ScrollViewer
+            Grid.Row="4"
+            HorizontalScrollBarVisibility="Auto"
+            VerticalScrollBarVisibility="Disabled">
         <ListView
             x:Name="Lista"
-            Grid.Row="3"
+            MinWidth="1180"
             SelectionMode="None">
             <ListView.ItemContainerStyle>
                 <Style TargetType="ListViewItem">
@@ -109,27 +126,25 @@
                         <ColumnDefinition Width="*" MinWidth="140" />
                         <ColumnDefinition Width="96" />
                         <ColumnDefinition Width="110" />
+                        <ColumnDefinition Width="96" />
                         <ColumnDefinition Width="52" />
-                        <ColumnDefinition Width="58" />
                         <ColumnDefinition Width="92" />
                         <ColumnDefinition Width="42" />
                         <ColumnDefinition Width="122" />
                         <ColumnDefinition Width="112" />
                         <ColumnDefinition Width="128" />
-                        <ColumnDefinition Width="136" />
                     </Grid.ColumnDefinitions>
                     <TextBlock VerticalAlignment="Center" FontSize="12" FontWeight="SemiBold" Opacity="0.7" Text="Código" />
                     <TextBlock Grid.Column="1" VerticalAlignment="Center" FontSize="12" FontWeight="SemiBold" Opacity="0.7" Text="Insumo" />
                     <TextBlock Grid.Column="2" VerticalAlignment="Center" FontSize="12" FontWeight="SemiBold" Opacity="0.7" Text="Marca" />
                     <TextBlock Grid.Column="3" VerticalAlignment="Center" FontSize="12" FontWeight="SemiBold" Opacity="0.7" Text="Proveedor" />
-                    <TextBlock Grid.Column="4" VerticalAlignment="Center" HorizontalAlignment="Right" FontSize="12" FontWeight="SemiBold" Opacity="0.7" Text="Cons." />
-                    <TextBlock Grid.Column="5" VerticalAlignment="Center" HorizontalAlignment="Right" FontSize="12" FontWeight="SemiBold" Opacity="0.7" Text="Stock" />
+                    <TextBlock Grid.Column="4" VerticalAlignment="Center" FontSize="12" FontWeight="SemiBold" Opacity="0.7" Text="RUC" />
+                    <TextBlock Grid.Column="5" VerticalAlignment="Center" HorizontalAlignment="Right" FontSize="12" FontWeight="SemiBold" Opacity="0.7" Text="Cons." />
                     <TextBlock Grid.Column="6" VerticalAlignment="Center" HorizontalAlignment="Right" FontSize="12" FontWeight="SemiBold" Opacity="0.7" Text="Pedir" />
                     <TextBlock Grid.Column="7" VerticalAlignment="Center" FontSize="12" FontWeight="SemiBold" Opacity="0.7" Text="Und." />
                     <TextBlock Grid.Column="8" VerticalAlignment="Center" HorizontalAlignment="Right" FontSize="12" FontWeight="SemiBold" Opacity="0.7" Text="Sin IGV" />
                     <TextBlock Grid.Column="9" VerticalAlignment="Center" HorizontalAlignment="Right" FontSize="12" FontWeight="SemiBold" Opacity="0.7" Text="IGV 18%" />
                     <TextBlock Grid.Column="10" VerticalAlignment="Center" HorizontalAlignment="Right" FontSize="12" FontWeight="SemiBold" Opacity="0.7" Text="Con IGV" />
-                    <TextBlock Grid.Column="11" VerticalAlignment="Center" FontSize="12" FontWeight="SemiBold" Opacity="0.7" Text="Tipo de precio" />
                 </Grid>
             </ListView.Header>
             <ListView.ItemTemplate>
@@ -145,14 +160,13 @@
                                 <ColumnDefinition Width="*" MinWidth="140" />
                                 <ColumnDefinition Width="96" />
                                 <ColumnDefinition Width="110" />
+                                <ColumnDefinition Width="96" />
                                 <ColumnDefinition Width="52" />
-                                <ColumnDefinition Width="58" />
                                 <ColumnDefinition Width="92" />
                                 <ColumnDefinition Width="42" />
                                 <ColumnDefinition Width="122" />
                                 <ColumnDefinition Width="112" />
                                 <ColumnDefinition Width="128" />
-                                <ColumnDefinition Width="136" />
                             </Grid.ColumnDefinitions>
                             <TextBlock VerticalAlignment="Center" FontWeight="SemiBold" Text="{x:Bind Codigo}" TextTrimming="CharacterEllipsis" />
                             <TextBlock
@@ -174,14 +188,13 @@
                             <TextBlock
                                 Grid.Column="4"
                                 VerticalAlignment="Center"
-                                HorizontalAlignment="Right"
-                                Text="{x:Bind TextoConsumo}"
-                                TextAlignment="Right" />
+                                Text="{x:Bind TextoRuc}"
+                                TextTrimming="CharacterEllipsis" />
                             <TextBlock
                                 Grid.Column="5"
                                 VerticalAlignment="Center"
                                 HorizontalAlignment="Right"
-                                Text="{x:Bind TextoStock}"
+                                Text="{x:Bind TextoConsumo}"
                                 TextAlignment="Right" />
                             <NumberBox
                                 Grid.Column="6"
@@ -215,22 +228,111 @@
                                 Text="{x:Bind TextoTotal, Mode=OneWay}"
                                 TextAlignment="Right"
                                 TextTrimming="CharacterEllipsis" />
-                            <ComboBox
-                                Grid.Column="11"
-                                Height="32"
-                                VerticalAlignment="Center"
-                                HorizontalAlignment="Stretch"
-                                ItemsSource="{x:Bind Tipos}"
-                                SelectedItem="{x:Bind TipoPrecio, Mode=TwoWay}" />
                         </Grid>
                     </Border>
                 </DataTemplate>
             </ListView.ItemTemplate>
         </ListView>
+        </ScrollViewer>
 
-        <Grid Grid.Row="4" ColumnSpacing="12">
+        <Grid Grid.Row="5" ColumnSpacing="10" RowSpacing="4">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="1.1*" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="1.1*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+            <TextBlock
+                VerticalAlignment="Center"
+                FontWeight="SemiBold"
+                Text="Datos bancarios" />
+            <TextBlock
+                x:Name="TextoProveedorBanco"
+                Grid.Column="1"
+                Grid.ColumnSpan="4"
+                VerticalAlignment="Center"
+                Opacity="0.72"
+                Text="Sin proveedor en la orden"
+                TextTrimming="CharacterEllipsis" />
+            <ComboBox
+                x:Name="ComboBanco"
+                Grid.Row="1"
+                HorizontalAlignment="Stretch"
+                Header="Banco"
+                SelectionChanged="ComboBanco_SelectionChanged" />
+            <TextBox
+                x:Name="CajaBancoOtro"
+                Grid.Row="1"
+                Grid.Column="1"
+                Header="Otra entidad"
+                PlaceholderText="Nombre del banco"
+                Visibility="Collapsed" />
+            <TextBox
+                x:Name="CajaCuenta"
+                Grid.Row="1"
+                Grid.Column="2"
+                Header="N.º de cuenta"
+                PlaceholderText="Cuenta bancaria" />
+            <TextBox
+                x:Name="CajaCci"
+                Grid.Row="1"
+                Grid.Column="3"
+                Header="CCI"
+                MaxLength="20"
+                PlaceholderText="20 dígitos" />
+            <Button
+                x:Name="BotonActualizarBanco"
+                Grid.Row="1"
+                Grid.Column="4"
+                MinWidth="168"
+                VerticalAlignment="Bottom"
+                Click="ActualizarBancoProveedor_Click"
+                Content="Actualizar proveedor"
+                ToolTipService.ToolTip="Guarda banco, cuenta y CCI en la ficha del proveedor." />
+        </Grid>
+
+        <Grid Grid.Row="6" ColumnSpacing="12">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="180" />
+                <ColumnDefinition Width="160" />
+                <ColumnDefinition Width="200" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <TextBox
+                x:Name="CajaFlete"
+                Header="Precio del flete"
+                PlaceholderText="0.00"
+                TextChanged="Flete_Changed" />
+            <ComboBox
+                x:Name="ComboFlete"
+                Grid.Column="1"
+                HorizontalAlignment="Stretch"
+                Header="Flete"
+                SelectionChanged="Flete_Changed" />
+            <ComboBox
+                x:Name="ComboCondicionPago"
+                Grid.Column="2"
+                HorizontalAlignment="Stretch"
+                Header="Condición de pago" />
+            <TextBlock
+                x:Name="TextoFlete"
+                Grid.Column="3"
+                VerticalAlignment="Bottom"
+                Margin="0,0,0,8"
+                Opacity="0.72"
+                Text="Indique flete e inclusión. La condición de pago y los datos bancarios salen en el PDF/Excel."
+                TextWrapping="Wrap" />
+        </Grid>
+
+        <Grid Grid.Row="7" ColumnSpacing="12">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
@@ -244,11 +346,16 @@
             <Button
                 Grid.Column="1"
                 MinWidth="140"
+                Click="Guardar_Click"
+                Content="Guardar" />
+            <Button
+                Grid.Column="2"
+                MinWidth="140"
                 Click="ExportarPdf_Click"
                 Content="Exportar PDF"
                 Style="{StaticResource AccentButtonStyle}" />
             <Button
-                Grid.Column="2"
+                Grid.Column="3"
                 MinWidth="140"
                 Click="ExportarExcel_Click"
                 Content="Exportar Excel" />

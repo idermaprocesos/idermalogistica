@@ -6,6 +6,18 @@ namespace IdermaFichas.Services;
 
 internal static class ModulosDocumento
 {
+    public static readonly string[] CamposMovimiento =
+    [
+        "Id ficha", "Id partida", "Id área", "Fecha", "Tipo", "Origen", "Cantidad",
+        "Existencia resultante", "Lote", "Fecha caducidad", "Tipo documento",
+        "Número documento", "Nota", "Nombre recibo", "Actualizado"
+    ];
+
+    public static readonly string[] CamposPrecio =
+    [
+        "Id ficha", "Fecha", "Monto", "Moneda", "Nota", "Actualizado"
+    ];
+
     public static Dictionary<string, object> CrearVencimiento(FichaTecnica ficha, PartidaInventario partida)
     {
         var documento = Identidad(ficha);
@@ -136,12 +148,22 @@ internal static class ModulosDocumento
         {
             ["Fecha registro"] = FechaHora(orden.FechaRegistro),
             ["Código formato"] = documento.CodigoFormato,
+            ["Correlativo"] = documento.Correlativo,
             ["Mes año"] = documento.MesAnio,
             ["Fecha elaboración"] = documento.FechaElaboracion,
             ["Elaborado por"] = documento.ElaboradoPor,
             ["Revisado por"] = documento.RevisadoPor,
             ["Periodo cobertura"] = documento.PeriodoCobertura,
             ["Estado"] = documento.Estado,
+            ["Flete precio"] = documento.FletePrecio,
+            ["Flete estado"] = documento.FleteEstado,
+            ["Condición de pago"] = CalculoOrdenCompra.NormalizarCondicionPago(documento.CondicionPago),
+            ["Banco proveedor"] = documento.BancoProveedor,
+            ["Número cuenta proveedor"] = documento.NumeroCuentaProveedor,
+            ["CCI proveedor"] = documento.CciProveedor,
+            ["Lugar de entrega"] = string.IsNullOrWhiteSpace(documento.LugarEntrega)
+                ? CalculoOrdenCompra.LugarEntrega
+                : documento.LugarEntrega,
             ["Líneas"] = documento.Lineas.Select(linea => (object)Linea(linea)).ToList()
         };
     }
@@ -170,6 +192,7 @@ internal static class ModulosDocumento
                     Texto(mapa, "Nombre"),
                     Texto(mapa, "Marca"),
                     Texto(mapa, "Proveedor"),
+                    Texto(mapa, "RUC"),
                     Numero(mapa, "Consumo promedio"),
                     Numero(mapa, "Stock actual"),
                     Numero(mapa, "Cantidad a pedir"),
@@ -180,7 +203,10 @@ internal static class ModulosDocumento
                     Texto(mapa, "Tipo precio"),
                     Texto(mapa, "Estado línea"),
                     EsSi(Texto(mapa, "Tiene precio")),
-                    MonedaPrecio.Normalizar(Texto(mapa, "Moneda"))));
+                    MonedaPrecio.Normalizar(Texto(mapa, "Moneda")))
+                {
+                    FichaId = Guid.TryParse(Texto(mapa, "Id ficha"), out var fichaId) ? fichaId : Guid.Empty
+                });
             }
         }
 
@@ -189,6 +215,93 @@ internal static class ModulosDocumento
             Id = id,
             FechaRegistro = ParseFecha(Texto(datos, "Fecha registro")) ?? DateTimeOffset.Now,
             Documento = new OrdenCompraDocumento
+            {
+                CodigoFormato = Texto(datos, "Código formato"),
+                Correlativo = Texto(datos, "Correlativo"),
+                MesAnio = Texto(datos, "Mes año"),
+                FechaElaboracion = Texto(datos, "Fecha elaboración"),
+                ElaboradoPor = Texto(datos, "Elaborado por"),
+                RevisadoPor = Texto(datos, "Revisado por"),
+                PeriodoCobertura = Texto(datos, "Periodo cobertura"),
+                Estado = Texto(datos, "Estado"),
+                FletePrecio = Texto(datos, "Flete precio"),
+                FleteEstado = string.IsNullOrWhiteSpace(Texto(datos, "Flete estado"))
+                    ? "No incluido"
+                    : Texto(datos, "Flete estado"),
+                CondicionPago = CalculoOrdenCompra.NormalizarCondicionPago(Texto(datos, "Condición de pago")),
+                BancoProveedor = Texto(datos, "Banco proveedor"),
+                NumeroCuentaProveedor = Texto(datos, "Número cuenta proveedor"),
+                CciProveedor = Texto(datos, "CCI proveedor"),
+                LugarEntrega = string.IsNullOrWhiteSpace(Texto(datos, "Lugar de entrega"))
+                    ? CalculoOrdenCompra.LugarEntrega
+                    : Texto(datos, "Lugar de entrega"),
+                Lineas = lineas
+            }
+        };
+    }
+
+    public static Dictionary<string, object> CrearOrdenServicio(OrdenServicioRegistrada orden)
+    {
+        var documento = orden.Documento ?? new OrdenServicioDocumento();
+        return new Dictionary<string, object>
+        {
+            ["Fecha registro"] = FechaHora(orden.FechaRegistro),
+            ["Ampliación aplicada"] = orden.AmpliacionAplicada ? "Sí" : "No",
+            ["Código formato"] = documento.CodigoFormato,
+            ["Mes año"] = documento.MesAnio,
+            ["Fecha elaboración"] = documento.FechaElaboracion,
+            ["Elaborado por"] = documento.ElaboradoPor,
+            ["Revisado por"] = documento.RevisadoPor,
+            ["Periodo cobertura"] = documento.PeriodoCobertura,
+            ["Estado"] = documento.Estado,
+            ["Líneas"] = documento.Lineas.Select(linea => (object)LineaServicio(linea)).ToList()
+        };
+    }
+
+    public static OrdenServicioRegistrada? LeerOrdenServicio(DocumentoNube documento)
+    {
+        if (!Guid.TryParse(documento.Id, out var id))
+        {
+            return null;
+        }
+
+        var datos = documento.Datos;
+        var lineas = new List<LineaOrdenServicioExportacion>();
+        if (datos.TryGetValue("Líneas", out var raw) && raw is IEnumerable<object> lista)
+        {
+            foreach (var item in lista)
+            {
+                var mapa = Mapa(item);
+                if (mapa.Count == 0)
+                {
+                    continue;
+                }
+
+                var vigencia = ParseFecha(Texto(mapa, "Vigencia actual"));
+                var nueva = ParseFecha(Texto(mapa, "Nueva vigencia"));
+                lineas.Add(new LineaOrdenServicioExportacion(
+                    Guid.TryParse(Texto(mapa, "Id proveedor"), out var proveedorId) ? proveedorId : Guid.Empty,
+                    Texto(mapa, "Proveedor"),
+                    Texto(mapa, "RUC"),
+                    Texto(mapa, "Contrato"),
+                    Texto(mapa, "Servicio"),
+                    vigencia?.LocalDateTime,
+                    (int)Math.Clamp(Numero(mapa, "Meses"), 1, 36),
+                    nueva?.LocalDateTime ?? DateTime.Today,
+                    Numero(mapa, "Monto mensual"),
+                    Numero(mapa, "Sin IGV"),
+                    Numero(mapa, "IGV"),
+                    Numero(mapa, "Total con IGV"),
+                    MonedaPrecio.Normalizar(Texto(mapa, "Moneda"))));
+            }
+        }
+
+        return new OrdenServicioRegistrada
+        {
+            Id = id,
+            FechaRegistro = ParseFecha(Texto(datos, "Fecha registro")) ?? DateTimeOffset.Now,
+            AmpliacionAplicada = EsSi(Texto(datos, "Ampliación aplicada")),
+            Documento = new OrdenServicioDocumento
             {
                 CodigoFormato = Texto(datos, "Código formato"),
                 MesAnio = Texto(datos, "Mes año"),
@@ -201,6 +314,127 @@ internal static class ModulosDocumento
             }
         };
     }
+
+    public static Dictionary<string, object> CrearMerma(MermaRegistrada merma)
+    {
+        var documento = new Dictionary<string, object>
+        {
+            ["Fecha"] = FechaHora(merma.Fecha),
+            ["Id ficha"] = merma.FichaId == Guid.Empty ? string.Empty : merma.FichaId.ToString("D"),
+            ["Código"] = merma.Codigo,
+            ["Nombre"] = merma.Nombre,
+            ["Lote"] = merma.Lote,
+            ["Fecha caducidad"] = merma.FechaCaducidad is null ? string.Empty : FechaHora(merma.FechaCaducidad.Value),
+            ["Cantidad"] = merma.Cantidad,
+            ["Unidad"] = merma.Unidad,
+            ["Motivo"] = merma.Motivo,
+            ["Detalle"] = merma.Detalle
+        };
+        if (merma.ExistenciaResultante is double resultante)
+        {
+            documento["Existencia resultante"] = resultante;
+        }
+
+        return documento;
+    }
+
+    public static MermaRegistrada? LeerMerma(DocumentoNube documento)
+    {
+        if (!Guid.TryParse(documento.Id, out var id))
+        {
+            return null;
+        }
+
+        var datos = documento.Datos;
+        return new MermaRegistrada
+        {
+            Id = id,
+            Fecha = ParseFecha(Texto(datos, "Fecha")) ?? DateTimeOffset.Now,
+            FichaId = Guid.TryParse(Texto(datos, "Id ficha"), out var fichaId) ? fichaId : Guid.Empty,
+            Codigo = Texto(datos, "Código"),
+            Nombre = Texto(datos, "Nombre"),
+            Lote = Texto(datos, "Lote"),
+            FechaCaducidad = ParseFecha(Texto(datos, "Fecha caducidad")),
+            Cantidad = Numero(datos, "Cantidad"),
+            Unidad = Texto(datos, "Unidad"),
+            Motivo = Texto(datos, "Motivo"),
+            Detalle = Texto(datos, "Detalle"),
+            ExistenciaResultante = datos.ContainsKey("Existencia resultante")
+                ? Numero(datos, "Existencia resultante")
+                : null
+        };
+    }
+
+    public static Dictionary<string, object> CrearEquipoControl(EquipoControl equipo) =>
+        new()
+        {
+            ["Código"] = equipo.Codigo,
+            ["Nombre"] = equipo.Nombre,
+            ["Ubicación"] = equipo.Ubicacion,
+            ["Responsable"] = equipo.Responsable,
+            ["Clase"] = equipo.Clase.ToString(),
+            ["Cada días"] = equipo.IntervaloDias,
+            ["Aviso días"] = equipo.AvisoDias,
+            ["Último control"] = equipo.UltimoControl is null ? string.Empty : FechaHora(equipo.UltimoControl.Value),
+            ["Nota"] = equipo.Nota
+        };
+
+    public static EquipoControl? LeerEquipoControl(DocumentoNube documento)
+    {
+        if (documento.Id == ControlMantenimientoRepository.IdDocumentoRangos || !Guid.TryParse(documento.Id, out var id))
+        {
+            return null;
+        }
+
+        var datos = documento.Datos;
+        return new EquipoControl
+        {
+            Id = id,
+            Codigo = Texto(datos, "Código"),
+            Nombre = Texto(datos, "Nombre"),
+            Ubicacion = Texto(datos, "Ubicación"),
+            Responsable = Texto(datos, "Responsable"),
+            Clase = Clase(Texto(datos, "Clase")),
+            IntervaloDias = (int)Numero(datos, "Cada días"),
+            AvisoDias = (int)Numero(datos, "Aviso días"),
+            UltimoControl = ParseFecha(Texto(datos, "Último control")),
+            Nota = Texto(datos, "Nota")
+        };
+    }
+
+    public static Dictionary<string, object> CrearRangosControl(RangosControlEquipo rangos) =>
+        new()
+        {
+            ["Preventivo días"] = rangos.PreventivoDias,
+            ["Aviso preventivo"] = rangos.AvisoPreventivoDias,
+            ["Correctivo días"] = rangos.CorrectivoDias,
+            ["Aviso correctivo"] = rangos.AvisoCorrectivoDias,
+            ["Crítico días"] = rangos.CriticoDias,
+            ["Aviso crítico"] = rangos.AvisoCriticoDias
+        };
+
+    public static RangosControlEquipo LeerRangosControl(DocumentoNube documento)
+    {
+        var datos = documento.Datos;
+        var rangos = new RangosControlEquipo
+        {
+            PreventivoDias = (int)Numero(datos, "Preventivo días"),
+            AvisoPreventivoDias = (int)Numero(datos, "Aviso preventivo"),
+            CorrectivoDias = (int)Numero(datos, "Correctivo días"),
+            AvisoCorrectivoDias = (int)Numero(datos, "Aviso correctivo"),
+            CriticoDias = (int)Numero(datos, "Crítico días"),
+            AvisoCriticoDias = (int)Numero(datos, "Aviso crítico")
+        };
+        rangos.Normalizar();
+        return rangos;
+    }
+
+    private static ClaseControlEquipo Clase(string texto) => texto.Trim().ToLowerInvariant() switch
+    {
+        "correctivo" => ClaseControlEquipo.Correctivo,
+        "critico" or "crítico" => ClaseControlEquipo.Critico,
+        _ => ClaseControlEquipo.Preventivo
+    };
 
     public static Dictionary<string, object> CrearProveedor(ProveedorRegistro proveedor, IReadOnlyList<FichaTecnica> fichas)
     {
@@ -225,6 +459,16 @@ internal static class ModulosDocumento
             ["Dato contacto 2"] = proveedor.Dato2,
             ["Notas"] = proveedor.Notas,
             ["Calificación"] = CalificacionProveedor.Normalizar(proveedor.Calificacion),
+            ["RUC"] = proveedor.Ruc,
+            ["Razón social"] = proveedor.RazonSocial,
+            ["Banco"] = proveedor.Banco,
+            ["Banco otro"] = proveedor.BancoOtro,
+            ["Número de cuenta"] = proveedor.NumeroCuenta,
+            ["CCI"] = proveedor.Cci,
+            ["Tiempo entrega días"] = proveedor.TiempoEntregaDias,
+            ["Acuerdo contrato"] = proveedor.AcuerdoContrato,
+            ["Cantidad contrato"] = (double)proveedor.CantidadContrato,
+            ["Unidad contrato"] = proveedor.UnidadContrato,
             ["Fecha agregado"] = FechaHora(proveedor.FechaAgregado),
             ["Fecha contacto"] = proveedor.FechaContacto == default ? string.Empty : FechaHora(proveedor.FechaContacto),
             ["Productos"] = productos
@@ -256,6 +500,16 @@ internal static class ModulosDocumento
             Dato2 = Texto(datos, "Dato contacto 2"),
             Notas = Texto(datos, "Notas"),
             Calificacion = CalificacionProveedor.Normalizar(Texto(datos, "Calificación")),
+            Ruc = ProveedorRegistro.NormalizarRuc(Texto(datos, "RUC")),
+            RazonSocial = Texto(datos, "Razón social"),
+            Banco = Texto(datos, "Banco"),
+            BancoOtro = Texto(datos, "Banco otro"),
+            NumeroCuenta = Texto(datos, "Número de cuenta"),
+            Cci = ProveedorRegistro.NormalizarCci(Texto(datos, "CCI")),
+            TiempoEntregaDias = (int)Math.Clamp(Numero(datos, "Tiempo entrega días"), 0, 365),
+            AcuerdoContrato = EsSi(Texto(datos, "Acuerdo contrato")),
+            CantidadContrato = (decimal)Numero(datos, "Cantidad contrato"),
+            UnidadContrato = Texto(datos, "Unidad contrato"),
             FechaAgregado = ParseFecha(Texto(datos, "Fecha agregado")) ?? DateTimeOffset.Now,
             FechaContacto = ParseFecha(Texto(datos, "Fecha contacto")) ?? default
         };
@@ -269,6 +523,7 @@ internal static class ModulosDocumento
             ["Nombre"] = linea.Nombre,
             ["Marca"] = linea.Marca,
             ["Proveedor"] = linea.Proveedor,
+            ["RUC"] = linea.Ruc,
             ["Unidad"] = linea.Unidad,
             ["Consumo promedio"] = linea.ConsumoPromedio,
             ["Stock actual"] = linea.StockActual,
@@ -279,6 +534,27 @@ internal static class ModulosDocumento
             ["Tipo precio"] = linea.TipoPrecio,
             ["Estado línea"] = linea.Estado,
             ["Tiene precio"] = linea.TienePrecio ? "Sí" : "No",
+            ["Moneda"] = MonedaPrecio.Normalizar(linea.Moneda),
+            ["Id ficha"] = linea.FichaId == Guid.Empty ? string.Empty : linea.FichaId.ToString("D")
+        };
+
+    private static Dictionary<string, object> LineaServicio(LineaOrdenServicioExportacion linea) =>
+        new()
+        {
+            ["Id proveedor"] = linea.ProveedorId == Guid.Empty ? string.Empty : linea.ProveedorId.ToString("D"),
+            ["Proveedor"] = linea.Proveedor,
+            ["RUC"] = linea.Ruc,
+            ["Contrato"] = linea.Contrato,
+            ["Servicio"] = linea.Servicio,
+            ["Vigencia actual"] = Fecha(linea.VigenciaActual is DateTime vigencia
+                ? new DateTimeOffset(DateTime.SpecifyKind(vigencia, DateTimeKind.Local))
+                : null),
+            ["Meses"] = linea.Meses,
+            ["Nueva vigencia"] = Fecha(new DateTimeOffset(DateTime.SpecifyKind(linea.NuevaVigencia, DateTimeKind.Local))),
+            ["Monto mensual"] = linea.MontoMensual,
+            ["Sin IGV"] = linea.SinIgv,
+            ["IGV"] = linea.Igv,
+            ["Total con IGV"] = linea.TotalConIgv,
             ["Moneda"] = MonedaPrecio.Normalizar(linea.Moneda)
         };
 

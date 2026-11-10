@@ -10,27 +10,39 @@ public static class ExcelFichaService
 {
     public static readonly string[] Encabezados =
     [
-        "Área", "Código", "Nombre", "Categoría", "Descripción",
-        "Estado físico", "Color", "Presentación", "Dimensiones", "Peso / volumen",
-        "Material", "Unidad", "Marca", "Modelo", "Especificaciones",
-        "Normas", "Almacenamiento", "Instrucciones", "Vida útil", "Existencia",
+        "Área", "Código", "Nombre", "Precio", "Moneda", "Categoría", "Descripción",
+        "Estado físico", "Unidad", "Marca", "Modelo",
+        "Normas", "Vida útil", "Existencia",
         "Stock mínimo", "Fabricante", "País", "Planta", "Tipo origen",
-        "Proveedor", "Contacto", "Canal contacto 1", "Dato contacto 1", "Canal contacto 2", "Dato contacto 2",
+        "Proveedor", "Canal contacto 1", "Dato contacto 1", "Canal contacto 2", "Dato contacto 2",
         "Lote", "Fecha adquisición", "Factura",
-        "Registro sanitario", "Uso clínico", "Procedimiento", "Estéril", "Refrigeración",
-        "Temperatura", "Fecha caducidad", "Composición", "Riesgo biológico", "Contraindicaciones",
+        "Registro sanitario", "Estéril", "Refrigeración",
+        "Fecha caducidad",
         "Reutilizable", "Ubicación", "Número de serie", "Garantía meses", "Mantenimiento",
         "Periodicidad", "Voltaje", "Compatibilidad", "Responsable", "Principio activo",
         "Concentración", "pH", "Superficies", "Tiempo contacto", "Dilución",
         "Peligrosidad", "SDS", "EPP", "Materiales compatibles", "Residuo",
-        "Observaciones", "Características extra"
+        "Observaciones"
     ];
 
-    public static void CrearPlantilla(string ruta)
+    public static void CrearPlantilla(string ruta, IReadOnlyList<FichaTecnica>? productos = null)
     {
+        var fichas = (productos ?? [])
+            .OrderBy(f => f.AreaTitulo, StringComparer.CurrentCultureIgnoreCase)
+            .ThenBy(f => f.Codigo, StringComparer.CurrentCultureIgnoreCase)
+            .ThenBy(f => f.Nombre, StringComparer.CurrentCultureIgnoreCase)
+            .ToList();
+
         using var libro = new XLWorkbook();
         var hoja = libro.AddWorksheet("Fichas");
-        var fila = IdermaMarca.EscribirMembrete(hoja, Encabezados.Length, "Plantilla de captura de fichas técnicas");
+        var subtitulo = fichas.Count == 0
+            ? null
+            : $"{fichas.Count} producto(s) del inventario";
+        var fila = IdermaMarca.EscribirMembrete(
+            hoja,
+            Encabezados.Length,
+            "Plantilla de captura de fichas técnicas",
+            subtitulo);
 
         for (var i = 0; i < Encabezados.Length; i++)
         {
@@ -39,28 +51,43 @@ public static class ExcelFichaService
 
         EstiloEncabezado(hoja.Range(fila, 1, fila, Encabezados.Length));
 
-        var ejemplo = fila + 1;
-        Ejemplo(hoja, ejemplo, "Área", "Clínica");
-        Ejemplo(hoja, ejemplo, "Código", "CLI_010");
-        Ejemplo(hoja, ejemplo, "Nombre", "Gasas estériles 10 × 10");
-        Ejemplo(hoja, ejemplo, "Categoría", "Material de curación");
-        Ejemplo(hoja, ejemplo, "Existencia", 40);
-        Ejemplo(hoja, ejemplo, "Stock mínimo", 10);
-        Ejemplo(hoja, ejemplo, "País", "México");
-        Ejemplo(hoja, ejemplo, "Canal contacto 1", "WhatsApp");
-        Ejemplo(hoja, ejemplo, "Dato contacto 1", "999888777");
-        Ejemplo(hoja, ejemplo, "Canal contacto 2", "Web");
-        Ejemplo(hoja, ejemplo, "Dato contacto 2", "https://proveedor.example");
-        Ejemplo(hoja, ejemplo, "Fecha caducidad", DateTime.Today.AddMonths(8));
+        if (fichas.Count == 0)
+        {
+            var ejemplo = fila + 1;
+            Ejemplo(hoja, ejemplo, "Área", "Insumos Médicos");
+            Ejemplo(hoja, ejemplo, "Código", "CDE_010");
+            Ejemplo(hoja, ejemplo, "Nombre", "Gasas estériles 10 × 10");
+            Ejemplo(hoja, ejemplo, "Categoría", "Material de curación");
+            Ejemplo(hoja, ejemplo, "Existencia", 40);
+            Ejemplo(hoja, ejemplo, "Stock mínimo", 10);
+            Ejemplo(hoja, ejemplo, "Precio", 12.5);
+            Ejemplo(hoja, ejemplo, "Moneda", "Soles");
+            Ejemplo(hoja, ejemplo, "País", "México");
+            Ejemplo(hoja, ejemplo, "Canal contacto 1", "WhatsApp");
+            Ejemplo(hoja, ejemplo, "Dato contacto 1", "999888777");
+            Ejemplo(hoja, ejemplo, "Canal contacto 2", "Web");
+            Ejemplo(hoja, ejemplo, "Dato contacto 2", "https://proveedor.example");
+            Ejemplo(hoja, ejemplo, "Fecha caducidad", DateTime.Today.AddMonths(8));
+            IdermaMarca.EscribirPieTabla(hoja, ejemplo + 2, Encabezados.Length);
+            EscribirHojaPartidas(libro, [], "Use esta hoja o varias filas con el mismo código en Fichas para distintos vencimientos.");
+        }
+        else
+        {
+            for (var i = 0; i < fichas.Count; i++)
+            {
+                EscribirFilaDetalle(hoja.Row(fila + 1 + i), fichas[i]);
+            }
 
-        IdermaMarca.EscribirPieTabla(hoja, ejemplo + 2, Encabezados.Length);
+            IdermaMarca.EscribirPieTabla(hoja, fila + 1 + fichas.Count + 1, Encabezados.Length);
+            EscribirHojaPartidas(libro, fichas);
+        }
+
         hoja.SheetView.FreezeRows(fila);
         for (var i = 0; i < Encabezados.Length; i++)
         {
             hoja.Column(i + 1).Width = Math.Clamp(Encabezados[i].Length + 4, 12, 28);
         }
 
-        EscribirHojaPartidas(libro, [], "Use esta hoja o varias filas con el mismo código en Fichas para distintos vencimientos.");
         IdermaMarca.AplicarPropiedades(libro, "Plantilla de fichas técnicas · Iderma Capilar");
         libro.SaveAs(ruta);
     }
@@ -93,20 +120,18 @@ public static class ExcelFichaService
                 Descripcion = Texto(fila, mapa, "descripcion", "descripción"),
                 EstadoFisico = Texto(fila, mapa, "estado fisico", "estado físico"),
                 Color = Texto(fila, mapa, "color", "color / apariencia"),
-                Presentacion = Texto(fila, mapa, "presentacion", "presentación"),
                 Dimensiones = Texto(fila, mapa, "dimensiones"),
                 PesoVolumen = Texto(fila, mapa, "peso / volumen", "peso", "volumen"),
                 MaterialFabricacion = Texto(fila, mapa, "material", "material de fabricacion"),
                 UnidadMedida = Texto(fila, mapa, "unidad", "unidad de medida"),
                 Marca = Texto(fila, mapa, "marca"),
                 Modelo = Texto(fila, mapa, "modelo"),
-                Especificaciones = Texto(fila, mapa, "especificaciones"),
                 NormasCertificaciones = Texto(fila, mapa, "normas", "normas / certificaciones"),
-                CondicionesAlmacenamiento = Texto(fila, mapa, "almacenamiento", "condiciones de almacenamiento"),
-                InstruccionesUso = Texto(fila, mapa, "instrucciones", "instrucciones de uso"),
                 VidaUtil = Texto(fila, mapa, "vida util", "vida útil"),
                 Existencia = Numero(fila, mapa, "existencia"),
                 StockMinimo = Numero(fila, mapa, "stock minimo", "stock mínimo"),
+                PrecioCarga = PrecioOpcional(fila, mapa, "precio", "precio unitario"),
+                MonedaCarga = Texto(fila, mapa, "moneda"),
                 Fabricante = Texto(fila, mapa, "fabricante"),
                 PaisOrigen = Texto(fila, mapa, "pais", "país", "pais de origen"),
                 PlantaOrigen = Texto(fila, mapa, "planta", "planta / ciudad de origen"),
@@ -121,15 +146,9 @@ public static class ExcelFichaService
                 FechaAdquisicion = Fecha(fila, mapa, "fecha adquisicion", "fecha de adquisición"),
                 NumeroFactura = Texto(fila, mapa, "factura", "numero de factura"),
                 RegistroSanitario = Texto(fila, mapa, "registro sanitario"),
-                UsoClinico = Texto(fila, mapa, "uso clinico", "uso clínico"),
-                Procedimiento = Texto(fila, mapa, "procedimiento"),
                 Esteril = Booleano(fila, mapa, "esteril", "estéril"),
                 RequiereRefrigeracion = Booleano(fila, mapa, "refrigeracion", "refrigeración"),
-                TemperaturaAlmacenamiento = Texto(fila, mapa, "temperatura"),
                 FechaCaducidad = Fecha(fila, mapa, "fecha caducidad", "caducidad", "vencimiento"),
-                Composicion = Texto(fila, mapa, "composicion", "composición"),
-                RiesgoBiologico = Texto(fila, mapa, "riesgo biologico", "riesgo biológico"),
-                Contraindicaciones = Texto(fila, mapa, "contraindicaciones"),
                 Reutilizable = Booleano(fila, mapa, "reutilizable"),
                 Ubicacion = Texto(fila, mapa, "ubicacion", "ubicación"),
                 NumeroSerie = Texto(fila, mapa, "numero de serie", "número de serie"),
@@ -216,6 +235,31 @@ public static class ExcelFichaService
             || double.TryParse(celda.GetString(), NumberStyles.Any, CultureInfo.InvariantCulture, out parseado)
             ? parseado
             : 0;
+    }
+
+    private static double? PrecioOpcional(IXLRow fila, Dictionary<string, int> mapa, params string[] claves)
+    {
+        var celda = Celda(fila, mapa, claves);
+        if (celda is null || celda.IsEmpty())
+        {
+            return null;
+        }
+
+        if (celda.TryGetValue(out double numero))
+        {
+            return numero;
+        }
+
+        var texto = celda.GetString().Trim();
+        if (texto.Length == 0)
+        {
+            return null;
+        }
+
+        return double.TryParse(texto, NumberStyles.Any, CultureInfo.CurrentCulture, out var parseado)
+            || double.TryParse(texto, NumberStyles.Any, CultureInfo.InvariantCulture, out parseado)
+            ? parseado
+            : null;
     }
 
     private static bool Booleano(IXLRow fila, Dictionary<string, int> mapa, params string[] claves)
@@ -323,7 +367,7 @@ public static class ExcelFichaService
     {
         string[] titulos =
         [
-            "Área", "Código", "Nombre", "Categoría", "Marca", "Modelo",
+            "Área", "Código", "Nombre", "Precio", "Moneda", "Categoría", "Marca", "Modelo",
             "Existencia", "Stock mínimo", "Caducidad", "Estado",
             "Fabricante", "País", "Proveedor", "Lote"
         ];
@@ -345,20 +389,32 @@ public static class ExcelFichaService
         {
             var f = fichas[i];
             var fila = inicio + 1 + i;
+            var ultimo = App.Instance.HistorialPrecios.Ultimo(f.Id);
             hoja.Cell(fila, 1).Value = f.AreaTitulo;
             hoja.Cell(fila, 2).Value = f.Codigo;
             hoja.Cell(fila, 3).Value = f.Nombre;
-            hoja.Cell(fila, 4).Value = f.Categoria;
-            hoja.Cell(fila, 5).Value = f.Marca;
-            hoja.Cell(fila, 6).Value = f.Modelo;
-            hoja.Cell(fila, 7).Value = f.Existencia;
-            hoja.Cell(fila, 8).Value = f.StockMinimo;
-            hoja.Cell(fila, 9).Value = f.FechaCaducidad?.ToString("dd/MM/yyyy") ?? string.Empty;
-            hoja.Cell(fila, 10).Value = f.EstadoCaducidadTexto;
-            hoja.Cell(fila, 11).Value = f.Fabricante;
-            hoja.Cell(fila, 12).Value = f.PaisOrigen;
-            hoja.Cell(fila, 13).Value = f.Proveedor;
-            hoja.Cell(fila, 14).Value = f.Lote;
+            if (ultimo is null)
+            {
+                hoja.Cell(fila, 4).Value = string.Empty;
+                hoja.Cell(fila, 5).Value = string.Empty;
+            }
+            else
+            {
+                hoja.Cell(fila, 4).Value = ultimo.Monto;
+                hoja.Cell(fila, 5).Value = MonedaPrecio.Etiqueta(ultimo.Moneda);
+            }
+
+            hoja.Cell(fila, 6).Value = f.Categoria;
+            hoja.Cell(fila, 7).Value = f.Marca;
+            hoja.Cell(fila, 8).Value = f.Modelo;
+            hoja.Cell(fila, 9).Value = f.Existencia;
+            hoja.Cell(fila, 10).Value = f.StockMinimo;
+            hoja.Cell(fila, 11).Value = f.FechaCaducidad?.ToString("dd/MM/yyyy") ?? string.Empty;
+            hoja.Cell(fila, 12).Value = f.EstadoCaducidadTexto;
+            hoja.Cell(fila, 13).Value = f.Fabricante;
+            hoja.Cell(fila, 14).Value = f.PaisOrigen;
+            hoja.Cell(fila, 15).Value = f.Proveedor;
+            hoja.Cell(fila, 16).Value = f.Lote;
         }
 
         IdermaMarca.EscribirPieTabla(hoja, inicio + 1 + fichas.Count + 1, titulos.Length);
@@ -396,25 +452,42 @@ public static class ExcelFichaService
         var contactos = ContactosParaExcel(f);
         object?[] valores =
         [
-            f.AreaTitulo, f.Codigo, f.Nombre, f.Categoria, f.Descripcion,
-            f.EstadoFisico, f.Color, f.Presentacion, f.Dimensiones, f.PesoVolumen,
-            f.MaterialFabricacion, f.UnidadMedida, f.Marca, f.Modelo, f.Especificaciones,
-            f.NormasCertificaciones, f.CondicionesAlmacenamiento, f.InstruccionesUso, f.VidaUtil, f.Existencia,
+            f.AreaTitulo, f.Codigo, f.Nombre, string.Empty, string.Empty, f.Categoria, f.Descripcion,
+            f.EstadoFisico, f.UnidadMedida, f.Marca, f.Modelo,
+            f.NormasCertificaciones, f.VidaUtil, f.Existencia,
             f.StockMinimo, f.Fabricante, f.PaisOrigen, f.PlantaOrigen, f.TipoOrigen,
-            f.Proveedor, f.ContactoProveedor, contactos.Canal1, contactos.Dato1, contactos.Canal2, contactos.Dato2,
+            f.Proveedor, contactos.Canal1, contactos.Dato1, contactos.Canal2, contactos.Dato2,
             f.Lote, FechaTexto(f.FechaAdquisicion), f.NumeroFactura,
-            f.RegistroSanitario, f.UsoClinico, f.Procedimiento, SiNo(f.Esteril), SiNo(f.RequiereRefrigeracion),
-            f.TemperaturaAlmacenamiento, FechaTexto(f.FechaCaducidad), f.Composicion, f.RiesgoBiologico, f.Contraindicaciones,
+            f.RegistroSanitario, SiNo(f.Esteril), SiNo(f.RequiereRefrigeracion),
+            FechaTexto(f.FechaCaducidad),
             SiNo(f.Reutilizable), f.Ubicacion, f.NumeroSerie, f.GarantiaMeses, SiNo(f.RequiereMantenimiento),
             f.PeriodicidadMantenimiento, f.Voltaje, f.Compatibilidad, f.Responsable, f.PrincipioActivo,
             f.Concentracion, f.Ph, f.SuperficiesUso, f.TiempoContacto, f.Dilucion,
             f.Peligrosidad, f.HojaSeguridad, f.EppRequerido, f.MaterialesCompatibles, f.ResiduoGenerado,
-            f.Observaciones, AlmacenCaracteristicas.SerializarLinea(f.Caracteristicas)
+            f.Observaciones
         ];
 
         for (var i = 0; i < valores.Length; i++)
         {
             fila.Cell(i + 1).Value = valores[i]?.ToString() ?? string.Empty;
+        }
+
+        var ultimo = App.Instance.HistorialPrecios.Ultimo(f.Id);
+        if (ultimo is null)
+        {
+            return;
+        }
+
+        var columnaPrecio = Array.IndexOf(Encabezados, "Precio");
+        var columnaMoneda = Array.IndexOf(Encabezados, "Moneda");
+        if (columnaPrecio >= 0)
+        {
+            fila.Cell(columnaPrecio + 1).Value = ultimo.Monto;
+        }
+
+        if (columnaMoneda >= 0)
+        {
+            fila.Cell(columnaMoneda + 1).Value = MonedaPrecio.Etiqueta(ultimo.Moneda);
         }
     }
 
@@ -437,7 +510,6 @@ public static class ExcelFichaService
             ("Unidad", f.UnidadMedida),
             ("Área", f.AreaTitulo),
             ("Estado físico", f.EstadoFisico),
-            ("Presentación", f.Presentacion),
             ("Descripción", f.Descripcion));
 
         fila = Bloque(hoja, fila, "Características técnicas",
@@ -445,11 +517,9 @@ public static class ExcelFichaService
             ("Modelo", f.Modelo),
             ("Normas", f.NormasCertificaciones),
             ("Vida útil", f.VidaUtil),
+            ("Precio", App.Instance.HistorialPrecios.TextoUltimo(f.Id)),
             ("Existencia", f.Existencia.ToString("0.##")),
-            ("Stock mínimo", f.StockMinimo.ToString("0.##")),
-            ("Especificaciones", f.Especificaciones),
-            ("Almacenamiento", f.CondicionesAlmacenamiento),
-            ("Instrucciones", f.InstruccionesUso));
+            ("Stock mínimo", f.StockMinimo.ToString("0.##")));
 
         fila = Bloque(hoja, fila, "Procedencia",
             ("Fabricante", f.Fabricante),
@@ -473,15 +543,9 @@ public static class ExcelFichaService
         if (AreasOperativas.Plantilla(f.Area) == AreaOperativa.Clinica)
         {
             fila = Bloque(hoja, fila, "Particularidades de clínica",
-                ("Uso clínico", f.UsoClinico),
-                ("Procedimiento", f.Procedimiento),
                 ("Estéril", SiNo(f.Esteril)),
                 ("Refrigeración", SiNo(f.RequiereRefrigeracion)),
-                ("Temperatura", f.TemperaturaAlmacenamiento),
                 ("Caducidad de referencia", FechaTexto(f.FechaCaducidad)),
-                ("Riesgo biológico", f.RiesgoBiologico),
-                ("Composición", f.Composicion),
-                ("Contraindicaciones", f.Contraindicaciones),
                 ("Reutilizable", SiNo(f.Reutilizable)));
         }
         else if (AreasOperativas.Plantilla(f.Area) == AreaOperativa.Oficina)
@@ -569,6 +633,13 @@ public static class ExcelFichaService
         {
             var lista = grupo.ToList();
             var principal = lista[0];
+            var conPrecio = lista.FirstOrDefault(f => f.PrecioCarga is not null);
+            if (principal.PrecioCarga is null && conPrecio is not null)
+            {
+                principal.PrecioCarga = conPrecio.PrecioCarga;
+                principal.MonedaCarga = conPrecio.MonedaCarga;
+            }
+
             principal.Partidas = lista.Select(PartidaDesdeFila).ToList();
             PartidasInventario.Normalizar(principal);
             resultado.Add(principal);
@@ -667,15 +738,15 @@ public static class ExcelFichaService
 
         if (fila == inicio + 1)
         {
-            hoja.Cell(fila, 1).Value = "Clínica";
-            hoja.Cell(fila, 2).Value = "CLI_010";
+            hoja.Cell(fila, 1).Value = "Insumos Médicos";
+            hoja.Cell(fila, 2).Value = "CDE_010";
             hoja.Cell(fila, 3).Value = "Gasas estériles 10 × 10";
             hoja.Cell(fila, 4).Value = "GAS-A";
             hoja.Cell(fila, 5).Value = DateTime.Today.AddMonths(4);
             hoja.Cell(fila, 6).Value = 15;
             fila++;
-            hoja.Cell(fila, 1).Value = "Clínica";
-            hoja.Cell(fila, 2).Value = "CLI_010";
+            hoja.Cell(fila, 1).Value = "Insumos Médicos";
+            hoja.Cell(fila, 2).Value = "CDE_010";
             hoja.Cell(fila, 3).Value = "Gasas estériles 10 × 10";
             hoja.Cell(fila, 4).Value = "GAS-B";
             hoja.Cell(fila, 5).Value = DateTime.Today.AddMonths(10);

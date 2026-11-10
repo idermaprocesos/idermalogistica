@@ -5,70 +5,20 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-    xmlns:pages="using:IdermaFichas.Pages"
     mc:Ignorable="d">
 
-    <ScrollViewer>
-        <Grid Padding="28,16,28,32" RowSpacing="20" MaxWidth="1180" HorizontalAlignment="Stretch">
+    <Grid Padding="28,16">
+        <Grid
+            MaxWidth="980"
+            HorizontalAlignment="Center"
+            VerticalAlignment="Center"
+            RowSpacing="20">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="*" />
             </Grid.RowDefinitions>
 
-            <Border
-                Padding="24,20"
-                CornerRadius="16"
-                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                BorderThickness="1">
-                <Grid ColumnSpacing="16">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*" />
-                        <ColumnDefinition Width="Auto" />
-                    </Grid.ColumnDefinitions>
-                    <StackPanel Spacing="6">
-                        <TextBlock
-                            Opacity="0.62"
-                            Style="{StaticResource CaptionTextBlockStyle}"
-                            Text="IDERMA CAPILAR · TABLERO OPERATIVO" />
-                        <TextBlock
-                            x:Name="SaludoPrincipal"
-                            FontSize="28"
-                            FontWeight="SemiBold"
-                            TextWrapping="Wrap" />
-                        <TextBlock
-                            x:Name="TextoFecha"
-                            Style="{StaticResource SubtituloPaginaStyle}" />
-                        <TextBlock
-                            x:Name="TextoResumenDia"
-                            Margin="0,4,0,0"
-                            Style="{StaticResource SubtituloPaginaStyle}" />
-                        <TextBlock
-                            x:Name="TextoNube"
-                            Opacity="0.72"
-                            Style="{StaticResource CaptionTextBlockStyle}"
-                            Text="Inventario local"
-                            TextWrapping="Wrap" />
-                    </StackPanel>
-                    <StackPanel Grid.Column="1" VerticalAlignment="Center" HorizontalAlignment="Right" Spacing="2">
-                        <TextBlock
-                            x:Name="TextoHora"
-                            FontSize="32"
-                            FontWeight="SemiBold"
-                            HorizontalAlignment="Right" />
-                        <TextBlock
-                            HorizontalAlignment="Right"
-                            Opacity="0.62"
-                            Text="Hora local" />
-                    </StackPanel>
-                </Grid>
-            </Border>
-
-            <Grid x:Name="PanelKpis" Grid.Row="1" ColumnSpacing="12">
+            <Grid x:Name="PanelKpis" ColumnSpacing="12">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="*" />
@@ -121,9 +71,7 @@
                 </Button>
             </Grid>
 
-            <Grid x:Name="PanelTarjetasArea" Grid.Row="2" ColumnSpacing="16" RowSpacing="16" />
-
-            <Grid Grid.Row="3" ColumnSpacing="16">
+            <Grid Grid.Row="1" ColumnSpacing="16">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="*" />
@@ -152,72 +100,6 @@
                     </StackPanel>
                 </Button>
             </Grid>
-
-            <Grid Grid.Row="4">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="Auto" />
-                </Grid.ColumnDefinitions>
-                <StackPanel Spacing="2">
-                    <TextBlock FontSize="18" FontWeight="SemiBold" Text="Actividad reciente" />
-                    <TextBlock Opacity="0.7" Text="Explicación con el inventario y el registro guardados en este equipo. No consulta la nube." TextWrapping="Wrap" />
-                </StackPanel>
-                <TextBlock
-                    x:Name="TextoUltimaActualizacion"
-                    Grid.Column="1"
-                    VerticalAlignment="Bottom"
-                    Opacity="0.65" />
-            </Grid>
-
-            <ListView
-                x:Name="ListaRecientes"
-                Grid.Row="5"
-                MinHeight="220"
-                IsItemClickEnabled="True"
-                ItemClick="ListaRecientes_ItemClick"
-                SelectionMode="None">
-                <ListView.Header>
-                    <Grid Padding="12,8" ColumnSpacing="16">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="88" />
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="110" />
-                            <ColumnDefinition Width="120" />
-                            <ColumnDefinition Width="140" />
-                        </Grid.ColumnDefinitions>
-                        <TextBlock FontWeight="SemiBold" Opacity="0.65" Text="Código" />
-                        <TextBlock Grid.Column="1" FontWeight="SemiBold" Opacity="0.65" Text="Producto" />
-                        <TextBlock Grid.Column="2" FontWeight="SemiBold" Opacity="0.65" Text="Área" />
-                        <TextBlock Grid.Column="3" FontWeight="SemiBold" Opacity="0.65" Text="Existencia" />
-                        <TextBlock Grid.Column="4" FontWeight="SemiBold" Opacity="0.65" Text="Actualizado" />
-                    </Grid>
-                </ListView.Header>
-                <ListView.ItemTemplate>
-                    <DataTemplate x:DataType="pages:FichaRecienteVista">
-                        <Grid Padding="4,10" ColumnSpacing="16">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="88" />
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="110" />
-                                <ColumnDefinition Width="120" />
-                                <ColumnDefinition Width="140" />
-                            </Grid.ColumnDefinitions>
-                            <TextBlock VerticalAlignment="Center" FontWeight="SemiBold" Text="{x:Bind Codigo}" />
-                            <StackPanel Grid.Column="1" Spacing="2">
-                                <TextBlock FontWeight="SemiBold" Text="{x:Bind Nombre}" />
-                                <TextBlock Opacity="0.65" Text="{x:Bind Explicacion}" TextWrapping="Wrap" />
-                            </StackPanel>
-                            <TextBlock Grid.Column="2" VerticalAlignment="Center" Text="{x:Bind AreaTitulo}" />
-                            <TextBlock Grid.Column="3" VerticalAlignment="Center" Text="{x:Bind Existencia}" />
-                            <TextBlock
-                                Grid.Column="4"
-                                VerticalAlignment="Center"
-                                Opacity="0.65"
-                                Text="{x:Bind FechaActualizacion}" />
-                        </Grid>
-                    </DataTemplate>
-                </ListView.ItemTemplate>
-            </ListView>
         </Grid>
-    </ScrollViewer>
+    </Grid>
 </Page>

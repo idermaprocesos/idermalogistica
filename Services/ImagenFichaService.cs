@@ -21,13 +21,6 @@ public static class ImagenFichaService
             return null;
         }
 
-        if (!string.IsNullOrWhiteSpace(ficha.RutaImagen) &&
-            File.Exists(ficha.RutaImagen) &&
-            !EsPendiente(ficha.RutaImagen))
-        {
-            return ficha.RutaImagen;
-        }
-
         return BuscarArchivo(ficha.Id, pendientes: false);
     }
 
@@ -36,11 +29,6 @@ public static class ImagenFichaService
         if (ficha is null)
         {
             return null;
-        }
-
-        if (!string.IsNullOrWhiteSpace(ficha.RutaImagen) && File.Exists(ficha.RutaImagen))
-        {
-            return ficha.RutaImagen;
         }
 
         return BuscarArchivo(ficha.Id, pendientes: true) ?? BuscarArchivo(ficha.Id, pendientes: false);

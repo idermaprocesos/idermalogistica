@@ -13,7 +13,6 @@
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
@@ -36,6 +35,12 @@
                 DefaultLabelPosition="Right"
                 OverflowButtonVisibility="Auto">
                 <AppBarButton
+                    x:Name="BotonActualizar"
+                    Icon="Refresh"
+                    Label="Actualizar"
+                    Click="Actualizar_Click"
+                    ToolTipService.ToolTip="Volver a cargar la base de datos del inventario" />
+                <AppBarButton
                     Icon="Save"
                     Label="Ficha"
                     Click="ExportarFicha_Click"
@@ -51,25 +56,17 @@
                     Click="EliminarSeleccionadas_Click"
                     ToolTipService.ToolTip="Borrar seleccionados" />
                 <AppBarButton
+                    Icon="Remove"
+                    Label="Enviar a merma"
+                    Click="EnviarMerma_Click"
+                    ToolTipService.ToolTip="Quitar del inventario los productos marcados, empezando por el lote más próximo a vencer" />
+                <AppBarButton
+                    x:Name="BotonMoverArea"
                     Icon="MoveToFolder"
                     Label="Área"
-                    ToolTipService.ToolTip="Mover seleccionados a otra área">
+                    ToolTipService.ToolTip="Mover el producto o la selección a otra área">
                     <AppBarButton.Flyout>
-                        <Flyout x:Name="FlyoutMoverArea" Placement="Bottom">
-                            <StackPanel Width="220" Spacing="10">
-                                <TextBlock Opacity="0.72" Text="Área de destino. Cada producto toma el siguiente código libre de ese prefijo." TextWrapping="Wrap" />
-                                <ComboBox
-                                    x:Name="ComboAreaSeleccionadas"
-                                    HorizontalAlignment="Stretch"
-                                    DisplayMemberPath="Nombre"
-                                    PlaceholderText="Elegir área" />
-                                <Button
-                                    HorizontalAlignment="Stretch"
-                                    Click="MoverSeleccionadas_Click"
-                                    Content="Mover selección"
-                                    Style="{StaticResource AccentButtonStyle}" />
-                            </StackPanel>
-                        </Flyout>
+                        <MenuFlyout Opening="MenuMoverArea_Opening" />
                     </AppBarButton.Flyout>
                 </AppBarButton>
                 <AppBarButton
@@ -85,34 +82,7 @@
             </CommandBar>
         </Grid>
 
-        <ScrollViewer
-            Grid.Row="1"
-            HorizontalScrollBarVisibility="Auto"
-            VerticalScrollBarVisibility="Disabled">
-            <StackPanel Orientation="Horizontal" Spacing="8">
-                <StackPanel x:Name="PanelChipsArea" Orientation="Horizontal" Spacing="8" />
-                <ToggleButton
-                    x:Name="ChipStockCritico"
-                    Click="ChipStock_Click">
-                    <TextBlock x:Name="TextoChipStock" Text="Stock crítico" />
-                </ToggleButton>
-                <ToggleButton
-                    x:Name="ChipVencidos"
-                    Click="ChipCaducidad_Click"
-                    Tag="1">
-                    <TextBlock x:Name="TextoChipVencidos" Text="Vencidos" />
-                </ToggleButton>
-                <ToggleButton
-                    x:Name="ChipProximos"
-                    Click="ChipCaducidad_Click"
-                    Tag="2">
-                    <TextBlock x:Name="TextoChipProximos" Text="Próximos 30 días" />
-                </ToggleButton>
-                <Button Click="LimpiarFiltros_Click" Content="Limpiar filtros" />
-            </StackPanel>
-        </ScrollViewer>
-
-        <Grid Grid.Row="2" ColumnSpacing="8">
+        <Grid Grid.Row="1" ColumnSpacing="8">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="200" />
@@ -122,7 +92,7 @@
             </Grid.ColumnDefinitions>
             <TextBox
                 x:Name="CajaBusqueda"
-                    PlaceholderText="Buscar en todos los datos de la ficha"
+                    PlaceholderText="Buscar por código, nombre, categoría, proveedor, ubicación o lote"
                 TextChanged="Filtros_Changed" />
             <ComboBox
                 x:Name="ComboArea"
@@ -157,6 +127,10 @@
                     <MenuFlyout>
                         <MenuFlyoutItem Click="SeleccionarTodas_Click" Text="Seleccionar todas" />
                         <MenuFlyoutItem Click="DeseleccionarTodas_Click" Text="Deseleccionar todas" />
+                        <MenuFlyoutItem
+                            Click="SeleccionarMismoProveedor_Click"
+                            Text="Seleccionar mismo proveedor"
+                            ToolTipService.ToolTip="Marca los productos visibles del mismo proveedor que la selección actual (o el primero de la lista)." />
                         <MenuFlyoutSeparator />
                         <MenuFlyoutItem Click="SeleccionarCruzada_Click" Text="Selección cruzada (una sí, una no)" />
                         <MenuFlyoutItem Click="SeleccionarArmonia_Click" Text="Selección armonía (dos sí, una no)" />
@@ -165,7 +139,7 @@
             </DropDownButton>
         </Grid>
 
-        <Grid Grid.Row="3" ColumnSpacing="8">
+        <Grid Grid.Row="2" ColumnSpacing="8">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="*" />
@@ -213,7 +187,7 @@
 
         <ListView
             x:Name="ListaCatalogo"
-            Grid.Row="4"
+            Grid.Row="3"
             IsItemClickEnabled="True"
             ItemClick="ListaCatalogo_ItemClick"
             KeyDown="ListaCatalogo_KeyDown"
@@ -228,17 +202,23 @@
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="36" />
                         <ColumnDefinition Width="88" />
-                        <ColumnDefinition Width="*" />
-                        <ColumnDefinition Width="110" />
+                        <ColumnDefinition Width="2*" />
+                        <ColumnDefinition Width="240" />
                         <ColumnDefinition Width="90" />
                         <ColumnDefinition Width="180" />
                         <ColumnDefinition Width="100" />
                     </Grid.ColumnDefinitions>
                     <TextBlock FontWeight="SemiBold" Opacity="0.7" Text="" />
                     <TextBlock Grid.Column="1" FontWeight="SemiBold" Opacity="0.7" Text="Código" />
-                    <TextBlock Grid.Column="2" FontWeight="SemiBold" Opacity="0.7" Text="Material" />
+                    <TextBlock Grid.Column="2" FontWeight="SemiBold" Opacity="0.7" Text="Producto" />
                     <TextBlock Grid.Column="3" FontWeight="SemiBold" Opacity="0.7" Text="Área" />
-                    <TextBlock Grid.Column="4" FontWeight="SemiBold" Opacity="0.7" Text="Existencia" />
+                    <TextBlock
+                        Grid.Column="4"
+                        HorizontalAlignment="Center"
+                        FontWeight="SemiBold"
+                        Opacity="0.7"
+                        Text="Existencia"
+                        TextAlignment="Center" />
                     <TextBlock Grid.Column="5" FontWeight="SemiBold" Opacity="0.7" Text="Caducidad" />
                     <TextBlock Grid.Column="6" FontWeight="SemiBold" Opacity="0.7" Text="Exportar" />
                 </Grid>
@@ -249,8 +229,8 @@
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="36" />
                             <ColumnDefinition Width="88" />
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="110" />
+                            <ColumnDefinition Width="2*" />
+                            <ColumnDefinition Width="240" />
                             <ColumnDefinition Width="90" />
                             <ColumnDefinition Width="180" />
                             <ColumnDefinition Width="100" />
@@ -270,7 +250,12 @@
                             <TextBlock Opacity="0.65" Text="{x:Bind Ficha.Resumen, Mode=OneWay}" />
                         </StackPanel>
                         <TextBlock Grid.Column="3" VerticalAlignment="Center" Text="{x:Bind Ficha.AreaTitulo, Mode=OneWay}" />
-                        <TextBlock Grid.Column="4" VerticalAlignment="Center" Text="{x:Bind ExistenciaTexto, Mode=OneWay}" />
+                        <TextBlock
+                            Grid.Column="4"
+                            HorizontalAlignment="Center"
+                            VerticalAlignment="Center"
+                            Text="{x:Bind ExistenciaTexto, Mode=OneWay}"
+                            TextAlignment="Center" />
                         <StackPanel Grid.Column="5" Spacing="2" VerticalAlignment="Center">
                             <TextBlock Text="{x:Bind Ficha.FechaCaducidadTexto, Mode=OneWay}" />
                             <TextBlock Opacity="0.7" Text="{x:Bind Ficha.EstadoCaducidadTexto, Mode=OneWay}" />

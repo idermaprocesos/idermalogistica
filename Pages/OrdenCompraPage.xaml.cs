@@ -14,27 +14,25 @@ namespace IdermaFichas.Pages;
 public sealed partial class OrdenCompraPage : Page, IVistaInventario
 {
     private static readonly CultureInfo Cultura = CultureInfo.GetCultureInfo("es-PE");
-    private readonly DispatcherTimer _relojBusqueda = new() { Interval = TimeSpan.FromMilliseconds(180) };
     private readonly HashSet<Guid> _marcadas = [];
     private readonly HashSet<int> _meses = [];
     private int? _atajoMeses;
     private List<OrdenProductoItem> _visibles = [];
+    private List<OpcionAreaOrden> _opcionesArea = [];
     private Guid? _unidad;
     private bool _sinArea;
     private bool _actualizandoFiltros;
     private bool _modoSeleccionar;
     private bool _ignorarClicLista;
+    private bool _tipProveedorMostrado;
     private int _anclaSeleccion = -1;
+    private string? _proveedorActivo;
+    private Guid? _productoElegidoId;
 
     public OrdenCompraPage()
     {
         InitializeComponent();
-        NavigationCacheMode = Microsoft.UI.Xaml.Navigation.NavigationCacheMode.Enabled;
-        _relojBusqueda.Tick += (_, _) =>
-        {
-            _relojBusqueda.Stop();
-            RefrescarLista();
-        };
+        NavigationCacheMode = Microsoft.UI.Xaml.Navigation.NavigationCacheMode.Disabled;
     }
 
     protected override void OnNavigatedTo(Microsoft.UI.Xaml.Navigation.NavigationEventArgs e)
@@ -57,15 +55,188 @@ public sealed partial class OrdenCompraPage : Page, IVistaInventario
         ComboMesHasta.SelectedIndex = -1;
         ConstruirMeses();
         CargarAnios();
+        CargarOpcionesArea();
         _actualizandoFiltros = false;
-        ConstruirChips();
         RefrescarLista();
     }
 
-    private void CajaBusqueda_TextChanged(object sender, TextChangedEventArgs e)
+    private void CajaBusqueda_TextChanged(AutoSuggestBox sender, AutoSuggestBoxTextChangedEventArgs args)
     {
-        _relojBusqueda.Stop();
-        _relojBusqueda.Start();
+        if (args.Reason != AutoSuggestionBoxTextChangeReason.UserInput)
+        {
+            return;
+        }
+
+        ActualizarSugerencias(sender.Text);
+    }
+
+    private async void CajaBusqueda_SuggestionChosen(AutoSuggestBox sender, AutoSuggestBoxSuggestionChosenEventArgs args)
+    {
+        if (args.SelectedItem is SugerenciaOrdenCompra sugerencia)
+        {
+            await AplicarSugerenciaAsync(sugerencia);
+            sender.Text = sugerencia.TextoCaja;
+        }
+    }
+
+    private async void CajaBusqueda_QuerySubmitted(AutoSuggestBox sender, AutoSuggestBoxQuerySubmittedEventArgs args)
+    {
+        if (args.ChosenSuggestion is SugerenciaOrdenCompra elegida)
+        {
+            await AplicarSugerenciaAsync(elegida);
+            sender.Text = elegida.TextoCaja;
+            return;
+        }
+
+        var texto = (args.QueryText ?? string.Empty).Trim();
+        if (texto.Length == 0)
+        {
+            return;
+        }
+
+        var primera = ConstruirSugerencias(texto).FirstOrDefault();
+        if (primera is null)
+        {
+            Mostrar($"No hay productos ni proveedores que coincidan con «{texto}».", InfoBarSeverity.Warning);
+            return;
+        }
+
+        await AplicarSugerenciaAsync(primera);
+        sender.Text = primera.TextoCaja;
+    }
+
+    private void CambiarProveedor_Click(object sender, RoutedEventArgs e)
+    {
+        _proveedorActivo = null;
+        _productoElegidoId = null;
+        _marcadas.Clear();
+        CajaBusqueda.Text = string.Empty;
+        CajaBusqueda.ItemsSource = null;
+        RefrescarLista();
+    }
+
+    private void ActualizarSugerencias(string? texto)
+    {
+        var limpio = (texto ?? string.Empty).Trim();
+        if (limpio.Length < 1)
+        {
+            CajaBusqueda.ItemsSource = null;
+            return;
+        }
+
+        CajaBusqueda.ItemsSource = ConstruirSugerencias(limpio);
+    }
+
+    private List<SugerenciaOrdenCompra> ConstruirSugerencias(string texto)
+    {
+        var repo = App.Instance.Repositorio;
+        var origen = repo.Buscar(string.Empty, _sinArea ? null : _unidad, _sinArea).ToList();
+        var sugerencias = new List<SugerenciaOrdenCompra>();
+
+        var proveedores = origen
+            .Select(f => f.Proveedor?.Trim() ?? string.Empty)
+            .Where(p => p.Length > 0)
+            .GroupBy(p => p, StringComparer.CurrentCultureIgnoreCase)
+            .Where(g => g.Key.Contains(texto, StringComparison.CurrentCultureIgnoreCase))
+            .OrderBy(g => g.Key, StringComparer.CurrentCultureIgnoreCase)
+            .Take(6)
+            .Select(g => new SugerenciaOrdenCompra(
+                true,
+                g.Key,
+                g.Count() == 1 ? "Proveedor · 1 producto" : $"Proveedor · {g.Count()} productos",
+                g.Key,
+                null,
+                g.Key));
+        sugerencias.AddRange(proveedores);
+
+        var productos = origen
+            .Where(f =>
+                Contiene(f.Codigo, texto)
+                || Contiene(f.Nombre, texto)
+                || Contiene(f.Marca, texto))
+            .OrderBy(f => f.Nombre, StringComparer.CurrentCultureIgnoreCase)
+            .Take(8)
+            .Select(f =>
+            {
+                var proveedor = string.IsNullOrWhiteSpace(f.Proveedor) ? "Sin proveedor" : f.Proveedor.Trim();
+                var codigo = string.IsNullOrWhiteSpace(f.Codigo) ? "—" : f.Codigo.Trim();
+                return new SugerenciaOrdenCompra(
+                    false,
+                    $"{codigo} · {f.Nombre}",
+                    $"Producto · {proveedor}",
+                    proveedor,
+                    f.Id,
+                    $"{codigo} · {f.Nombre}");
+            });
+        sugerencias.AddRange(productos);
+        return sugerencias;
+    }
+
+    private static bool Contiene(string? valor, string texto) =>
+        !string.IsNullOrWhiteSpace(valor)
+        && valor.Contains(texto, StringComparison.CurrentCultureIgnoreCase);
+
+    private async Task AplicarSugerenciaAsync(SugerenciaOrdenCompra sugerencia)
+    {
+        var proveedor = sugerencia.Proveedor?.Trim() ?? string.Empty;
+        if (proveedor.Length == 0 || proveedor == "Sin proveedor")
+        {
+            if (sugerencia.EsProveedor || sugerencia.FichaId is not Guid fichaId)
+            {
+                Mostrar("Ese producto no tiene proveedor asignado.", InfoBarSeverity.Warning);
+                return;
+            }
+
+            var ficha = App.Instance.Repositorio.Obtener(fichaId);
+            if (ficha is null)
+            {
+                Mostrar("No se encontró el producto en el inventario.", InfoBarSeverity.Error);
+                return;
+            }
+
+            Mostrar(
+                $"«{ficha.Nombre}» no tiene proveedor. Regístrelo para continuar la orden.",
+                InfoBarSeverity.Informational);
+            var nuevo = await ProveedorEditorDialogo.MostrarAsync(XamlRoot);
+            if (nuevo is null)
+            {
+                Mostrar("Debe registrar un proveedor para armar la orden con este producto.", InfoBarSeverity.Warning);
+                return;
+            }
+
+            ProveedorFichaSync.AsignarAFicha(ficha, nuevo);
+            proveedor = nuevo.Nombre.Trim();
+            Mostrar($"Proveedor «{proveedor}» guardado y asignado a «{ficha.Nombre}».", InfoBarSeverity.Success);
+            sugerencia = new SugerenciaOrdenCompra(
+                false,
+                sugerencia.Titulo,
+                $"Producto · {proveedor}",
+                proveedor,
+                ficha.Id,
+                sugerencia.TextoCaja);
+        }
+
+        var mismo = string.Equals(_proveedorActivo, proveedor, StringComparison.CurrentCultureIgnoreCase);
+        if (!mismo)
+        {
+            _marcadas.Clear();
+        }
+
+        _proveedorActivo = proveedor;
+        _productoElegidoId = sugerencia.EsProveedor ? null : sugerencia.FichaId;
+        CajaBusqueda.ItemsSource = null;
+        RefrescarLista();
+
+        if (_productoElegidoId is Guid id)
+        {
+            var item = _visibles.FirstOrDefault(v => v.Id == id);
+            if (item is not null && !item.EstaMarcada)
+            {
+                item.EstaMarcada = true;
+                _marcadas.Add(item.Id);
+                ActualizarResumenMarcas();
+            }
+        }
     }
 
     private void Filtros_Changed(object sender, SelectionChangedEventArgs e)
@@ -127,33 +298,14 @@ public sealed partial class OrdenCompraPage : Page, IVistaInventario
         RefrescarLista();
     }
 
-    private void ChipStock_Click(object sender, RoutedEventArgs e)
-    {
-        if (_actualizandoFiltros)
-        {
-            return;
-        }
-
-        ComboStock.SelectedIndex = ChipStockCritico.IsChecked == true
-            ? (int)FiltroStockCatalogo.Critico
-            : (int)FiltroStockCatalogo.Todos;
-    }
-
-    private void ChipCaducidad_Click(object sender, RoutedEventArgs e)
-    {
-        if (_actualizandoFiltros || sender is not ToggleButton chip)
-        {
-            return;
-        }
-
-        var indice = int.TryParse(chip.Tag?.ToString(), out var n) ? n : 0;
-        ComboCaducidad.SelectedIndex = chip.IsChecked == true ? indice : 0;
-    }
-
     private void LimpiarFiltros_Click(object sender, RoutedEventArgs e)
     {
         _actualizandoFiltros = true;
         CajaBusqueda.Text = string.Empty;
+        CajaBusqueda.ItemsSource = null;
+        _proveedorActivo = null;
+        _productoElegidoId = null;
+        _marcadas.Clear();
         _unidad = null;
         _sinArea = false;
         ComboStock.SelectedIndex = 0;
@@ -172,11 +324,10 @@ public sealed partial class OrdenCompraPage : Page, IVistaInventario
         ChipUltimos3.IsChecked = false;
         ChipUltimos6.IsChecked = false;
         SeleccionarPrimero(ComboCategoria);
-        SeleccionarPrimero(ComboProveedor);
         SeleccionarPrimero(ComboUbicacion);
         SeleccionarPrimero(ComboLote);
+        CargarOpcionesArea();
         _actualizandoFiltros = false;
-        ConstruirChips();
         RefrescarLista();
     }
 
@@ -188,44 +339,86 @@ public sealed partial class OrdenCompraPage : Page, IVistaInventario
         }
     }
 
-    private void ConstruirChips()
+    private void Area_Changed(object sender, SelectionChangedEventArgs e)
     {
-        _actualizandoFiltros = true;
-        PanelUnidades.Children.Clear();
-        var repo = App.Instance.Repositorio;
-        PanelUnidades.Children.Add(CrearChip("Todas las unidades", null, false, !_unidad.HasValue && !_sinArea, repo.Todas.Count));
-        foreach (var area in AreasOperativas.Todas)
-        {
-            PanelUnidades.Children.Add(CrearChip(area.Nombre, area.Id, false, _unidad == area.Id && !_sinArea, repo.Contar(area.Id)));
-        }
-
-        PanelUnidades.Children.Add(CrearChip("Sin área", null, true, _sinArea, repo.Contar(null)));
-        _actualizandoFiltros = false;
-    }
-
-    private ToggleButton CrearChip(string texto, Guid? area, bool sinArea, bool activo, int conteo)
-    {
-        var chip = new ToggleButton
-        {
-            Content = new TextBlock { Text = $"{texto} ({conteo})" },
-            IsChecked = activo,
-            Tag = new FiltroUnidadOrden(area, sinArea)
-        };
-        chip.Click += ChipUnidad_Click;
-        return chip;
-    }
-
-    private void ChipUnidad_Click(object sender, RoutedEventArgs e)
-    {
-        if (_actualizandoFiltros || sender is not ToggleButton chip || chip.Tag is not FiltroUnidadOrden filtro)
+        if (_actualizandoFiltros)
         {
             return;
         }
 
-        _unidad = filtro.SinArea ? null : filtro.Area;
-        _sinArea = filtro.SinArea;
-        ConstruirChips();
+        AplicarAreaSeleccionada();
         RefrescarLista();
+    }
+
+    private void CargarOpcionesArea()
+    {
+        var repo = App.Instance.Repositorio;
+        var anterior = ComboArea.SelectedIndex >= 0 && ComboArea.SelectedIndex < _opcionesArea.Count
+            ? _opcionesArea[ComboArea.SelectedIndex]
+            : null;
+        var criticos = repo.Todas.Count(f => f.EstaStockCritico);
+        var vencidos = repo.PartidasVencidas().Count();
+        var proximos = repo.PartidasProximas(30).Count();
+        _opcionesArea =
+        [
+            new($"Todas las unidades ({repo.Todas.Count})", null, false)
+        ];
+        _opcionesArea.AddRange(AreasOperativas.Todas.Select(a =>
+            new OpcionAreaOrden($"{a.Nombre} ({repo.Contar(a.Id)})", a.Id, false)));
+        _opcionesArea.Add(new($"Sin área ({repo.Contar(null)})", null, true));
+        _opcionesArea.Add(new($"Stock crítico ({criticos})", null, false, FiltroStockCatalogo.Critico));
+        _opcionesArea.Add(new($"Vencidos ({vencidos})", null, false, null, FiltroCaducidadCatalogo.Vencidas));
+        _opcionesArea.Add(new($"Próximos 30 días ({proximos})", null, false, null, FiltroCaducidadCatalogo.Proximas));
+
+        var previo = _actualizandoFiltros;
+        _actualizandoFiltros = true;
+        ComboArea.ItemsSource = _opcionesArea.Select(o => o.Texto).ToList();
+        var indice = anterior is null
+            ? 0
+            : _opcionesArea.FindIndex(o => MismaOpcionArea(o, anterior));
+        if (indice < 0)
+        {
+            indice = !_unidad.HasValue && !_sinArea
+                ? 0
+                : _opcionesArea.FindIndex(o =>
+                    !o.EsFiltroRapido && o.SinArea == _sinArea && o.Id == _unidad);
+        }
+
+        ComboArea.SelectedIndex = indice >= 0 ? indice : 0;
+        AplicarAreaSeleccionada();
+        _actualizandoFiltros = previo;
+    }
+
+    private static bool MismaOpcionArea(OpcionAreaOrden a, OpcionAreaOrden b) =>
+        a.SinArea == b.SinArea &&
+        a.Id == b.Id &&
+        a.Stock == b.Stock &&
+        a.Caducidad == b.Caducidad;
+
+    private void AplicarAreaSeleccionada()
+    {
+        if (ComboArea.SelectedIndex < 0 || ComboArea.SelectedIndex >= _opcionesArea.Count)
+        {
+            _unidad = null;
+            _sinArea = false;
+            return;
+        }
+
+        var opcion = _opcionesArea[ComboArea.SelectedIndex];
+        if (opcion.EsFiltroRapido)
+        {
+            _unidad = null;
+            _sinArea = false;
+            var previo = _actualizandoFiltros;
+            _actualizandoFiltros = true;
+            ComboStock.SelectedIndex = (int)(opcion.Stock ?? FiltroStockCatalogo.Todos);
+            ComboCaducidad.SelectedIndex = (int)(opcion.Caducidad ?? FiltroCaducidadCatalogo.Todas);
+            _actualizandoFiltros = previo;
+            return;
+        }
+
+        _unidad = opcion.SinArea ? null : opcion.Id;
+        _sinArea = opcion.SinArea;
     }
 
     private void ConstruirMeses()
@@ -373,9 +566,13 @@ public sealed partial class OrdenCompraPage : Page, IVistaInventario
 
     public void AplicarCambioInventario()
     {
-        ConstruirChips();
+        if (_marcadas.Count > 0)
+        {
+            return;
+        }
+
+        CargarOpcionesArea();
         RefrescarLista();
-        AnimacionLista.Revelar(ListaProductos);
     }
 
     private void RefrescarLista()
@@ -388,25 +585,46 @@ public sealed partial class OrdenCompraPage : Page, IVistaInventario
         var repo = App.Instance.Repositorio;
         var registro = App.Instance.Registro;
         var precios = App.Instance.HistorialPrecios;
-        var filtro = CajaBusqueda.Text?.Trim() ?? string.Empty;
         var origenArea = repo.Buscar(string.Empty, _sinArea ? null : _unidad, _sinArea);
         RellenarListas(origenArea);
 
         _actualizandoFiltros = true;
         CargarAnios();
         _actualizandoFiltros = false;
+        TextoPeriodo.Text = PeriodoActual();
+        ActualizarTextosFiltrosRapidos();
+
+        var hayProveedor = !string.IsNullOrWhiteSpace(_proveedorActivo);
+        BotonCambiarProveedor.Visibility = hayProveedor ? Visibility.Visible : Visibility.Collapsed;
+        if (!hayProveedor)
+        {
+            _visibles = [];
+            ListaProductos.ItemsSource = _visibles;
+            PanelLista.Visibility = Visibility.Collapsed;
+            PanelVacio.Visibility = Visibility.Visible;
+            TituloLista.Text = "Productos";
+            ActualizarResumenMarcas();
+            return;
+        }
+
+        PanelVacio.Visibility = Visibility.Collapsed;
+        PanelLista.Visibility = Visibility.Visible;
 
         var anio = AnioParaFiltro();
         var meses = MesesParaFiltro();
         var desde = DesdeActual();
         var atajo = _atajoMeses;
-        var fichas = repo.Buscar(filtro, _sinArea ? null : _unidad, _sinArea)
+        var fichas = origenArea
+            .Where(f => string.Equals(
+                (f.Proveedor ?? string.Empty).Trim(),
+                _proveedorActivo,
+                StringComparison.CurrentCultureIgnoreCase))
             .Where(f => FiltrosCatalogo.Coincide(
                 f,
                 (FiltroStockCatalogo)ComboStock.SelectedIndex,
                 (FiltroCaducidadCatalogo)ComboCaducidad.SelectedIndex,
                 ComboCategoria.SelectedItem as string,
-                ComboProveedor.SelectedItem as string,
+                FiltrosCatalogo.TodosProveedores,
                 ComboUbicacion.SelectedItem as string,
                 ComboLote.SelectedItem as string));
         var criterio = OrdenFichas.Opciones[ComboOrden.SelectedIndex].Criterio;
@@ -422,7 +640,7 @@ public sealed partial class OrdenCompraPage : Page, IVistaInventario
                     Ficha = ficha,
                     Codigo = string.IsNullOrWhiteSpace(ficha.Codigo) ? "—" : ficha.Codigo,
                     Nombre = ficha.Nombre,
-                    Resumen = $"{ficha.AreaTitulo} · {ficha.Categoria}".Trim(' ', '·'),
+                    Resumen = ResumenProducto(ficha),
                     StockTexto = $"Stock {ficha.Existencia.ToString("0.##", Cultura)}{unidad}",
                     ConsumoTexto = $"Cons. {consumo.ToString("0.##", Cultura)}{unidad}",
                     PrecioTexto = ultimo is null || ultimo.Monto <= 0
@@ -435,23 +653,86 @@ public sealed partial class OrdenCompraPage : Page, IVistaInventario
 
         ListaProductos.ItemsSource = _visibles;
         _anclaSeleccion = -1;
-        TituloLista.Text = _sinArea
-            ? $"Productos sin área ({_visibles.Count})"
-            : _unidad is Guid id
-                ? $"{AreasOperativas.Titulo(id)} ({_visibles.Count})"
-                : $"Todos los productos ({_visibles.Count})";
-        TextoPeriodo.Text = PeriodoActual();
-        ActualizarChipsEstado();
+        TituloLista.Text = $"Proveedor «{_proveedorActivo}» ({_visibles.Count})";
         ActualizarResumenMarcas();
+    }
+
+    private void ActualizarTextosFiltrosRapidos()
+    {
+        if (_opcionesArea.Count == 0)
+        {
+            return;
+        }
+
+        var seleccionado = ComboArea.SelectedIndex >= 0 && ComboArea.SelectedIndex < _opcionesArea.Count
+            ? _opcionesArea[ComboArea.SelectedIndex]
+            : null;
+        var repo = App.Instance.Repositorio;
+        var criticos = repo.Todas.Count(f => f.EstaStockCritico);
+        var vencidos = repo.PartidasVencidas().Count();
+        var proximos = repo.PartidasProximas(30).Count();
+        for (var i = 0; i < _opcionesArea.Count; i++)
+        {
+            var opcion = _opcionesArea[i];
+            if (opcion.Stock == FiltroStockCatalogo.Critico)
+            {
+                _opcionesArea[i] = opcion with { Texto = $"Stock crítico ({criticos})" };
+            }
+            else if (opcion.Caducidad == FiltroCaducidadCatalogo.Vencidas)
+            {
+                _opcionesArea[i] = opcion with { Texto = $"Vencidos ({vencidos})" };
+            }
+            else if (opcion.Caducidad == FiltroCaducidadCatalogo.Proximas)
+            {
+                _opcionesArea[i] = opcion with { Texto = $"Próximos 30 días ({proximos})" };
+            }
+            else if (!opcion.EsFiltroRapido && !opcion.SinArea && opcion.Id is null)
+            {
+                _opcionesArea[i] = opcion with { Texto = $"Todas las unidades ({repo.Todas.Count})" };
+            }
+            else if (opcion.SinArea)
+            {
+                _opcionesArea[i] = opcion with { Texto = $"Sin área ({repo.Contar(null)})" };
+            }
+            else if (opcion.Id is Guid id)
+            {
+                var nombre = AreasOperativas.Titulo(id);
+                _opcionesArea[i] = opcion with { Texto = $"{nombre} ({repo.Contar(id)})" };
+            }
+        }
+
+        var previo = _actualizandoFiltros;
+        _actualizandoFiltros = true;
+        ComboArea.ItemsSource = _opcionesArea.Select(o => o.Texto).ToList();
+        if (seleccionado is not null)
+        {
+            var indice = _opcionesArea.FindIndex(o => MismaOpcionArea(o, seleccionado));
+            ComboArea.SelectedIndex = indice >= 0 ? indice : 0;
+        }
+
+        _actualizandoFiltros = previo;
+    }
+
+    private static string ResumenProducto(FichaTecnica ficha)
+    {
+        var proveedor = string.IsNullOrWhiteSpace(ficha.Proveedor) ? "Sin proveedor" : ficha.Proveedor.Trim();
+        return $"{ficha.AreaTitulo} · {ficha.Categoria} · {proveedor}".Trim(' ', '·');
     }
 
     private void RellenarListas(IReadOnlyList<FichaTecnica> origen)
     {
+        var baseLista = string.IsNullOrWhiteSpace(_proveedorActivo)
+            ? origen
+            : origen
+                .Where(f => string.Equals(
+                    (f.Proveedor ?? string.Empty).Trim(),
+                    _proveedorActivo,
+                    StringComparison.CurrentCultureIgnoreCase))
+                .ToList();
         _actualizandoFiltros = true;
-        AsignarLista(ComboCategoria, FiltrosCatalogo.ValoresUnicos(origen, f => f.Categoria, FiltrosCatalogo.TodasCategorias));
-        AsignarLista(ComboProveedor, FiltrosCatalogo.ValoresUnicos(origen, f => f.Proveedor, FiltrosCatalogo.TodosProveedores));
-        AsignarLista(ComboUbicacion, FiltrosCatalogo.ValoresUnicos(origen, f => f.Ubicacion, FiltrosCatalogo.TodasUbicaciones));
-        AsignarLista(ComboLote, FiltrosCatalogo.LotesUnicos(origen));
+        AsignarLista(ComboCategoria, FiltrosCatalogo.ValoresUnicos(baseLista, f => f.Categoria, FiltrosCatalogo.TodasCategorias));
+        AsignarLista(ComboUbicacion, FiltrosCatalogo.ValoresUnicos(baseLista, f => f.Ubicacion, FiltrosCatalogo.TodasUbicaciones));
+        AsignarLista(ComboLote, FiltrosCatalogo.LotesUnicos(baseLista));
         _actualizandoFiltros = false;
     }
 
@@ -469,19 +750,6 @@ public sealed partial class OrdenCompraPage : Page, IVistaInventario
         }
     }
 
-    private void ActualizarChipsEstado()
-    {
-        _actualizandoFiltros = true;
-        ChipStockCritico.IsChecked = ComboStock.SelectedIndex == (int)FiltroStockCatalogo.Critico;
-        ChipVencidos.IsChecked = ComboCaducidad.SelectedIndex == (int)FiltroCaducidadCatalogo.Vencidas;
-        ChipProximos.IsChecked = ComboCaducidad.SelectedIndex == (int)FiltroCaducidadCatalogo.Proximas;
-        var todas = App.Instance.Repositorio.Todas;
-        TextoChipStock.Text = $"Stock crítico ({todas.Count(f => f.EstaStockCritico)})";
-        TextoChipVencidos.Text = $"Vencidos ({App.Instance.Repositorio.PartidasVencidas().Count()})";
-        TextoChipProximos.Text = $"Próximos 30 días ({App.Instance.Repositorio.PartidasProximas(30).Count()})";
-        _actualizandoFiltros = false;
-    }
-
     private void ListaProductos_ItemClick(object sender, ItemClickEventArgs e)
     {
         if (_ignorarClicLista)
@@ -496,7 +764,7 @@ public sealed partial class OrdenCompraPage : Page, IVistaInventario
             return;
         }
 
-        SeleccionListaFichas.AplicarClic(_visibles, _marcadas, item, ref _anclaSeleccion);
+        AplicarClicConProveedor(item);
         ActualizarResumenMarcas();
     }
 
@@ -504,8 +772,7 @@ public sealed partial class OrdenCompraPage : Page, IVistaInventario
     {
         if (e.Key == Windows.System.VirtualKey.A && SeleccionListaFichas.CtrlIzquierdoPulsado)
         {
-            SeleccionListaFichas.SeleccionarTodas(_visibles, _marcadas);
-            ActualizarResumenMarcas();
+            SeleccionarMismoProveedor();
             e.Handled = true;
         }
         else if (e.Key == Windows.System.VirtualKey.Escape)
@@ -522,11 +789,8 @@ public sealed partial class OrdenCompraPage : Page, IVistaInventario
         TextoModoSeleccionar.Text = _modoSeleccionar ? "Seleccionando" : "Seleccionar";
     }
 
-    private void SeleccionarTodas_Click(object sender, RoutedEventArgs e)
-    {
-        SeleccionListaFichas.SeleccionarTodas(_visibles, _marcadas);
-        ActualizarResumenMarcas();
-    }
+    private void SeleccionarTodas_Click(object sender, RoutedEventArgs e) =>
+        SeleccionarMismoProveedor();
 
     private void DeseleccionarTodas_Click(object sender, RoutedEventArgs e)
     {
@@ -534,17 +798,11 @@ public sealed partial class OrdenCompraPage : Page, IVistaInventario
         ActualizarResumenMarcas();
     }
 
-    private void SeleccionarCruzada_Click(object sender, RoutedEventArgs e)
-    {
-        SeleccionListaFichas.SeleccionarCruzada(_visibles, _marcadas);
-        ActualizarResumenMarcas();
-    }
+    private void SeleccionarCruzada_Click(object sender, RoutedEventArgs e) =>
+        SeleccionarPatron(i => i % 2 == 0);
 
-    private void SeleccionarArmonia_Click(object sender, RoutedEventArgs e)
-    {
-        SeleccionListaFichas.SeleccionarArmonia(_visibles, _marcadas);
-        ActualizarResumenMarcas();
-    }
+    private void SeleccionarArmonia_Click(object sender, RoutedEventArgs e) =>
+        SeleccionarPatron(i => i % 3 != 2);
 
     private void MarcaFicha_Tapped(object sender, TappedRoutedEventArgs e) =>
         e.Handled = true;
@@ -564,25 +822,281 @@ public sealed partial class OrdenCompraPage : Page, IVistaInventario
             return;
         }
 
-        item.EstaMarcada = caja.IsChecked == true;
-        if (item.EstaMarcada)
+        if (caja.IsChecked == true)
         {
+            if (!PuedeAgregar(item, out var mensaje))
+            {
+                item.EstaMarcada = false;
+                caja.IsChecked = false;
+                Mostrar(mensaje, InfoBarSeverity.Error);
+                MostrarTipProveedor();
+                ActualizarResumenMarcas();
+                return;
+            }
+
+            item.EstaMarcada = true;
             _marcadas.Add(item.Id);
         }
         else
         {
+            item.EstaMarcada = false;
             _marcadas.Remove(item.Id);
         }
 
         ActualizarResumenMarcas();
     }
 
+    private void AplicarClicConProveedor(OrdenProductoItem item)
+    {
+        var indice = _visibles.FindIndex(v => v.Id == item.Id);
+        if (indice < 0)
+        {
+            return;
+        }
+
+        var ctrl = SeleccionListaFichas.CtrlIzquierdoPulsado;
+        var mayus = SeleccionListaFichas.MayusPulsado;
+
+        if (mayus && _anclaSeleccion >= 0 && _anclaSeleccion < _visibles.Count)
+        {
+            var desde = Math.Min(_anclaSeleccion, indice);
+            var hasta = Math.Max(_anclaSeleccion, indice);
+            if (!ctrl)
+            {
+                SeleccionListaFichas.DeseleccionarTodas(_visibles, _marcadas);
+            }
+
+            var rechazados = 0;
+            for (var i = desde; i <= hasta; i++)
+            {
+                var candidato = _visibles[i];
+                if (!PuedeAgregar(candidato, out _))
+                {
+                    rechazados++;
+                    continue;
+                }
+
+                candidato.EstaMarcada = true;
+                _marcadas.Add(candidato.Id);
+            }
+
+            if (rechazados > 0)
+            {
+                Mostrar(
+                    "Solo se marcaron productos del mismo proveedor. Los demás se omitieron.",
+                    InfoBarSeverity.Error);
+                MostrarTipProveedor();
+            }
+
+            return;
+        }
+
+        if (ctrl)
+        {
+            if (item.EstaMarcada)
+            {
+                item.EstaMarcada = false;
+                _marcadas.Remove(item.Id);
+            }
+            else if (!PuedeAgregar(item, out var mensaje))
+            {
+                Mostrar(mensaje, InfoBarSeverity.Error);
+                MostrarTipProveedor();
+            }
+            else
+            {
+                item.EstaMarcada = true;
+                _marcadas.Add(item.Id);
+            }
+
+            _anclaSeleccion = indice;
+            return;
+        }
+
+        SeleccionListaFichas.DeseleccionarTodas(_visibles, _marcadas);
+        item.EstaMarcada = true;
+        _marcadas.Add(item.Id);
+        _anclaSeleccion = indice;
+    }
+
+    private void SeleccionarMismoProveedor()
+    {
+        var proveedor = ProveedorDeSeleccion() ?? (_visibles.Count > 0 ? ClaveProveedor(_visibles[0].Ficha) : null);
+        if (proveedor is null)
+        {
+            return;
+        }
+
+        var omitidos = 0;
+        foreach (var item in _visibles)
+        {
+            if (MismoProveedor(ClaveProveedor(item.Ficha), proveedor))
+            {
+                item.EstaMarcada = true;
+                _marcadas.Add(item.Id);
+            }
+            else
+            {
+                if (item.EstaMarcada)
+                {
+                    item.EstaMarcada = false;
+                    _marcadas.Remove(item.Id);
+                }
+
+                omitidos++;
+            }
+        }
+
+        ActualizarResumenMarcas();
+        if (omitidos > 0)
+        {
+            Mostrar(
+                $"Solo se marcaron productos de «{EtiquetaProveedor(proveedor)}». Los de otro proveedor se omitieron.",
+                InfoBarSeverity.Warning);
+            MostrarTipProveedor();
+        }
+    }
+
+    private void SeleccionarPatron(Func<int, bool> incluir)
+    {
+        var proveedor = ProveedorDeSeleccion();
+        var omitidos = 0;
+        for (var i = 0; i < _visibles.Count; i++)
+        {
+            var item = _visibles[i];
+            var debe = incluir(i);
+            if (!debe)
+            {
+                item.EstaMarcada = false;
+                _marcadas.Remove(item.Id);
+                continue;
+            }
+
+            var clave = ClaveProveedor(item.Ficha);
+            if (proveedor is null)
+            {
+                proveedor = clave;
+            }
+
+            if (!MismoProveedor(clave, proveedor))
+            {
+                item.EstaMarcada = false;
+                _marcadas.Remove(item.Id);
+                omitidos++;
+                continue;
+            }
+
+            item.EstaMarcada = true;
+            _marcadas.Add(item.Id);
+        }
+
+        ActualizarResumenMarcas();
+        if (omitidos > 0)
+        {
+            Mostrar(
+                "La selección solo incluye un proveedor. Los productos de otro proveedor se omitieron.",
+                InfoBarSeverity.Warning);
+            MostrarTipProveedor();
+        }
+    }
+
+    private bool PuedeAgregar(OrdenProductoItem item, out string mensaje)
+    {
+        mensaje = string.Empty;
+        if (_marcadas.Count == 0 || _marcadas.Contains(item.Id))
+        {
+            return true;
+        }
+
+        var proveedorActual = ProveedorDeSeleccion();
+        if (proveedorActual is null)
+        {
+            return true;
+        }
+
+        var nuevo = ClaveProveedor(item.Ficha);
+        if (MismoProveedor(nuevo, proveedorActual))
+        {
+            return true;
+        }
+
+        mensaje =
+            $"Solo se puede sacar órdenes de compra con un solo proveedor. Ya hay productos de «{EtiquetaProveedor(proveedorActual)}».";
+        return false;
+    }
+
+    private string? ProveedorDeSeleccion()
+    {
+        foreach (var id in _marcadas)
+        {
+            var item = _visibles.FirstOrDefault(v => v.Id == id);
+            if (item is not null)
+            {
+                return ClaveProveedor(item.Ficha);
+            }
+
+            var ficha = App.Instance.Repositorio.Obtener(id);
+            if (ficha is not null)
+            {
+                return ClaveProveedor(ficha);
+            }
+        }
+
+        return null;
+    }
+
+    private static string ClaveProveedor(FichaTecnica ficha) =>
+        string.IsNullOrWhiteSpace(ficha.Proveedor) ? string.Empty : ficha.Proveedor.Trim();
+
+    private static bool MismoProveedor(string a, string b) =>
+        string.Equals(a, b, StringComparison.CurrentCultureIgnoreCase);
+
+    private static string EtiquetaProveedor(string clave) =>
+        string.IsNullOrWhiteSpace(clave) ? "Sin proveedor" : clave;
+
+    private void MostrarTipProveedor(bool forzar = true)
+    {
+        if (!forzar && _tipProveedorMostrado)
+        {
+            return;
+        }
+
+        TipProveedorUnico.IsOpen = false;
+        TipProveedorUnico.Target = PanelLista.Visibility == Visibility.Visible ? ResumenMarcas : TituloLista;
+        TipProveedorUnico.IsOpen = true;
+        _tipProveedorMostrado = true;
+    }
+
+    private void TipProveedorUnico_CloseButtonClick(TeachingTip sender, object args) =>
+        CerrarTipProveedor();
+
+    private void TipProveedorUnico_Closed(TeachingTip sender, TeachingTipClosedEventArgs args) =>
+        CerrarTipProveedor();
+
+    private void CerrarTipProveedor()
+    {
+        TipProveedorUnico.IsOpen = false;
+        TipProveedorUnico.Target = null;
+    }
+
     private void ActualizarResumenMarcas()
     {
+        if (string.IsNullOrWhiteSpace(_proveedorActivo))
+        {
+            return;
+        }
+
         var marcadas = _visibles.Count(f => f.EstaMarcada);
-        ResumenMarcas.Text = marcadas == 0
-            ? "Marque productos para armar la orden. El consumo usa el periodo elegido."
-            : $"{marcadas} seleccionada(s). La orden usa este periodo para el consumo promedio.";
+        var proveedor = ProveedorDeSeleccion() ?? _proveedorActivo;
+        if (marcadas == 0)
+        {
+            ResumenMarcas.Text =
+                $"Productos de «{EtiquetaProveedor(proveedor)}». Marque los que entrarán en la orden.";
+            return;
+        }
+
+        ResumenMarcas.Text =
+            $"{marcadas} seleccionada(s) · {EtiquetaProveedor(proveedor)}. La orden usa este periodo para el consumo promedio.";
     }
 
     private void VerEnCatalogo_Click(object sender, RoutedEventArgs e)
@@ -595,8 +1109,14 @@ public sealed partial class OrdenCompraPage : Page, IVistaInventario
         App.Instance.MainAppWindow?.IrACatalogo(id);
     }
 
-    private void GenerarOrden_Click(object sender, RoutedEventArgs e)
+    private async void GenerarOrden_Click(object sender, RoutedEventArgs e)
     {
+        if (string.IsNullOrWhiteSpace(_proveedorActivo))
+        {
+            Mostrar("Primero busque y elija un producto o proveedor.", InfoBarSeverity.Warning);
+            return;
+        }
+
         var fichas = _visibles.Where(i => i.EstaMarcada).Select(i => i.Ficha).ToList();
         if (fichas.Count == 0)
         {
@@ -604,10 +1124,45 @@ public sealed partial class OrdenCompraPage : Page, IVistaInventario
             return;
         }
 
+        var proveedores = fichas
+            .Select(ClaveProveedor)
+            .Distinct(StringComparer.CurrentCultureIgnoreCase)
+            .ToList();
+        if (proveedores.Count > 1)
+        {
+            Mostrar(
+                "Solo se puede sacar órdenes de compra con un solo proveedor. Quite los productos de otro proveedor.",
+                InfoBarSeverity.Error);
+            MostrarTipProveedor();
+            return;
+        }
+
         var lineas = OrdenCompraArmado.DesdeSeleccion(
             fichas, AnioParaFiltro(), MesesParaFiltro(), DesdeActual(), _atajoMeses);
+        if (!OrdenCompraArmado.CumpleAcuerdoContrato(lineas, out var mensajeContrato))
+        {
+            var dialogo = new ContentDialog
+            {
+                Title = "Cantidad mínima por contrato",
+                Content = mensajeContrato,
+                PrimaryButtonText = "Usar cantidad mínima",
+                CloseButtonText = "Cancelar",
+                DefaultButton = ContentDialogButton.Close,
+                XamlRoot = XamlRoot
+            };
+            if (await dialogo.ShowAsync() != ContentDialogResult.Primary)
+            {
+                return;
+            }
+
+            OrdenCompraArmado.AjustarACantidadContrato(lineas);
+        }
+
         Frame.Navigate(typeof(OrdenCompraWindow), lineas);
     }
+
+    private void EditarBorradores_Click(object sender, RoutedEventArgs e) =>
+        Frame.Navigate(typeof(BorradoresOrdenPage));
 
     private void VerAnteriores_Click(object sender, RoutedEventArgs e) =>
         Frame.Navigate(typeof(RegistroOrdenesWindow));
@@ -619,7 +1174,43 @@ public sealed partial class OrdenCompraPage : Page, IVistaInventario
         BarraAviso.IsOpen = true;
     }
 
-    private readonly record struct FiltroUnidadOrden(Guid? Area, bool SinArea);
+    private sealed record OpcionAreaOrden(
+        string Texto,
+        Guid? Id,
+        bool SinArea,
+        FiltroStockCatalogo? Stock = null,
+        FiltroCaducidadCatalogo? Caducidad = null)
+    {
+        public bool EsFiltroRapido => Stock is not null || Caducidad is not null;
+    }
+}
+
+public sealed class SugerenciaOrdenCompra
+{
+    public SugerenciaOrdenCompra(
+        bool esProveedor,
+        string titulo,
+        string detalle,
+        string proveedor,
+        Guid? fichaId,
+        string textoCaja)
+    {
+        EsProveedor = esProveedor;
+        Titulo = titulo;
+        Detalle = detalle;
+        Proveedor = proveedor;
+        FichaId = fichaId;
+        TextoCaja = textoCaja;
+    }
+
+    public bool EsProveedor { get; }
+    public string Titulo { get; }
+    public string Detalle { get; }
+    public string Proveedor { get; }
+    public Guid? FichaId { get; }
+    public string TextoCaja { get; }
+
+    public override string ToString() => Titulo;
 }
 
 public sealed class OrdenProductoItem : INotifyPropertyChanged, IItemMarcable

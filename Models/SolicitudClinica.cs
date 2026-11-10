@@ -18,6 +18,9 @@ public sealed class LineaSolicitudClinica
     public string Nombre { get; set; } = string.Empty;
     public int Cantidad { get; set; }
 
+    /// <summary>Cantidad que logística aceptó o denegó. Null mientras sigue pendiente.</summary>
+    public int? CantidadRespuesta { get; set; }
+
     [JsonIgnore]
     public string Texto => $"{Codigo}  {Nombre}  x{Cantidad}".Trim();
 }
@@ -27,6 +30,7 @@ public sealed class SolicitudClinica : INotifyPropertyChanged
     private EstadoSolicitudClinica _estado = EstadoSolicitudClinica.Pendiente;
     private string _motivoDenegacion = string.Empty;
     private DateTimeOffset? _fechaRespuesta;
+    private bool _cantidadAcordada;
 
     public string Id { get; set; } = Guid.NewGuid().ToString("N");
     public string Folio { get; set; } = string.Empty;
@@ -54,6 +58,25 @@ public sealed class SolicitudClinica : INotifyPropertyChanged
             OnPropertyChanged(nameof(EstaDenegada));
             OnPropertyChanged(nameof(EstaRespondida));
             OnPropertyChanged(nameof(ResumenRespuesta));
+            OnPropertyChanged(nameof(Detalle));
+        }
+    }
+
+    public bool CantidadAcordada
+    {
+        get => _cantidadAcordada;
+        set
+        {
+            if (_cantidadAcordada == value)
+            {
+                return;
+            }
+
+            _cantidadAcordada = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(EstadoTexto));
+            OnPropertyChanged(nameof(ResumenRespuesta));
+            OnPropertyChanged(nameof(Detalle));
         }
     }
 
@@ -99,6 +122,7 @@ public sealed class SolicitudClinica : INotifyPropertyChanged
     [JsonIgnore]
     public string EstadoTexto => Estado switch
     {
+        EstadoSolicitudClinica.Aceptada when CantidadAcordada => "Cantidad acordada",
         EstadoSolicitudClinica.Aceptada => "Aceptada",
         EstadoSolicitudClinica.Denegada => "Denegada",
         _ => "Pendiente"
@@ -124,7 +148,7 @@ public sealed class SolicitudClinica : INotifyPropertyChanged
         $"{Enfermera} · {Items.Count} {(Items.Count == 1 ? "producto" : "productos")} · {TotalCantidad} pzas";
 
     [JsonIgnore]
-    public string Detalle => string.Join(Environment.NewLine, Items.Select(i => i.Texto));
+    public string Detalle => string.Join(Environment.NewLine, Items.Select(TextoLinea));
 
     [JsonIgnore]
     public string ResumenRespuesta
@@ -136,6 +160,13 @@ public sealed class SolicitudClinica : INotifyPropertyChanged
                 return "Esperando respuesta de logística.";
             }
 
+            if (Estado == EstadoSolicitudClinica.Aceptada && CantidadAcordada)
+            {
+                return string.IsNullOrWhiteSpace(MotivoDenegacion)
+                    ? $"Aceptada con cantidad acordada el {FechaRespuestaTexto}."
+                    : $"Aceptada con cantidad acordada el {FechaRespuestaTexto}: {MotivoDenegacion}";
+            }
+
             if (Estado == EstadoSolicitudClinica.Aceptada)
             {
                 return $"Aceptada el {FechaRespuestaTexto}.";
@@ -145,6 +176,27 @@ public sealed class SolicitudClinica : INotifyPropertyChanged
                 ? $"Denegada el {FechaRespuestaTexto}."
                 : $"Denegada el {FechaRespuestaTexto}: {MotivoDenegacion}";
         }
+    }
+
+    private string TextoLinea(LineaSolicitudClinica linea)
+    {
+        var baseTexto = $"{linea.Codigo}  {linea.Nombre}".Trim();
+        if (linea.CantidadRespuesta is not int respondida)
+        {
+            return linea.Texto;
+        }
+
+        if (Estado == EstadoSolicitudClinica.Denegada)
+        {
+            return $"{baseTexto}  pedidas x{linea.Cantidad} · denegadas x{respondida}".Trim();
+        }
+
+        if (CantidadAcordada)
+        {
+            return $"{baseTexto}  pedidas x{linea.Cantidad} · acordadas x{respondida}".Trim();
+        }
+
+        return linea.Texto;
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;

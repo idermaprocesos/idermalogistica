@@ -58,25 +58,12 @@
                     Click="ImportarExcel_Click"
                     ToolTipService.ToolTip="Importar Excel" />
                 <AppBarButton
+                    x:Name="BotonMoverArea"
                     Icon="MoveToFolder"
                     Label="Área"
-                    ToolTipService.ToolTip="Mover seleccionados a otra área">
+                    ToolTipService.ToolTip="Mover el producto o la selección a otra área">
                     <AppBarButton.Flyout>
-                        <Flyout x:Name="FlyoutMoverArea" Placement="Bottom">
-                            <StackPanel Width="220" Spacing="10">
-                                <TextBlock Opacity="0.72" Text="Área de destino. Cada producto toma el siguiente código libre de ese prefijo." TextWrapping="Wrap" />
-                                <ComboBox
-                                    x:Name="ComboAreaSeleccionadas"
-                                    HorizontalAlignment="Stretch"
-                                    DisplayMemberPath="Nombre"
-                                    PlaceholderText="Elegir área" />
-                                <Button
-                                    HorizontalAlignment="Stretch"
-                                    Click="MoverSeleccionadas_Click"
-                                    Content="Mover selección"
-                                    Style="{StaticResource AccentButtonStyle}" />
-                            </StackPanel>
-                        </Flyout>
+                        <MenuFlyout Opening="MenuMoverArea_Opening" />
                     </AppBarButton.Flyout>
                 </AppBarButton>
                 <AppBarButton
@@ -102,7 +89,7 @@
                 </Grid.RowDefinitions>
                 <TextBox
                     x:Name="CajaBusqueda"
-                    PlaceholderText="Buscar en todos los datos de la ficha"
+                    PlaceholderText="Buscar por nombre, código, categoría o fabricante"
                     TextChanged="CajaBusqueda_TextChanged" />
                 <ComboBox
                     x:Name="ComboOrden"
@@ -240,12 +227,12 @@
                     </InfoBar>
 
                     <Pivot x:Name="Formulario" Grid.Row="1">
-                        <PivotItem Header="Identificación">
+                        <PivotItem Header="Ficha">
                             <ScrollViewer>
                                 <StackPanel Padding="4,8,16,16" Spacing="8">
                                     <TextBlock
                                         Opacity="0.72"
-                                        Text="Datos básicos y características físicas. El código tiene como máximo 10 caracteres."
+                                        Text="Identificación, datos técnicos y uso del producto. El código tiene como máximo 10 caracteres."
                                         TextWrapping="Wrap" />
                                     <Grid ColumnSpacing="12" RowSpacing="12">
                                     <Grid.ColumnDefinitions>
@@ -253,6 +240,7 @@
                                         <ColumnDefinition Width="*" />
                                     </Grid.ColumnDefinitions>
                                     <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto" />
                                         <RowDefinition Height="Auto" />
                                         <RowDefinition Height="Auto" />
                                         <RowDefinition Height="Auto" />
@@ -321,95 +309,222 @@
                                             SelectedItem="{Binding UnidadMedida, Mode=TwoWay}" />
                                     </StackPanel>
                                     <StackPanel Grid.Row="2" Grid.Column="1">
-                                        <TextBlock Style="{StaticResource EtiquetaCampoStyle}" Text="Área del producto" />
-                                        <ComboBox
-                                            x:Name="ComboAreaProducto"
-                                            HorizontalAlignment="Stretch"
-                                            DisplayMemberPath="Nombre"
-                                            SelectionChanged="ComboAreaProducto_SelectionChanged" />
-                                    </StackPanel>
-                                    <StackPanel Grid.Row="3">
                                         <TextBlock Style="{StaticResource EtiquetaCampoStyle}" Text="Estado físico" />
                                         <ComboBox
                                             x:Name="ComboEstadoFisico"
                                             HorizontalAlignment="Stretch"
                                             SelectedItem="{Binding EstadoFisico, Mode=TwoWay}" />
                                     </StackPanel>
-                                    <StackPanel Grid.Row="3" Grid.Column="1">
-                                        <TextBlock Style="{StaticResource EtiquetaCampoStyle}" Text="Presentación" />
-                                        <ComboBox
-                                            x:Name="ComboPresentacion"
-                                            HorizontalAlignment="Stretch"
-                                            PlaceholderText="Caja, frasco, set, blister..."
-                                            SelectedItem="{Binding Presentacion, Mode=TwoWay}" />
+                                    <StackPanel Grid.Row="3">
+                                        <TextBlock Style="{StaticResource EtiquetaCampoStyle}" Text="Marca" />
+                                        <TextBox Text="{Binding Marca, Mode=TwoWay}" />
                                     </StackPanel>
-                                    <Grid Grid.Row="4" Grid.ColumnSpan="2" ColumnSpacing="12">
+                                    <StackPanel Grid.Row="3" Grid.Column="1">
+                                        <TextBlock Style="{StaticResource EtiquetaCampoStyle}" Text="Modelo" />
+                                        <TextBox Text="{Binding Modelo, Mode=TwoWay}" />
+                                    </StackPanel>
+                                    <StackPanel Grid.Row="4">
+                                        <TextBlock Style="{StaticResource EtiquetaCampoStyle}" Text="Normas / certificaciones" />
+                                        <TextBox PlaceholderText="ISO, CE, COFEPRIS, FDA..." Text="{Binding NormasCertificaciones, Mode=TwoWay}" />
+                                    </StackPanel>
+                                    <StackPanel Grid.Row="4" Grid.Column="1">
+                                        <TextBlock Style="{StaticResource EtiquetaCampoStyle}" Text="Vida útil" />
+                                        <ComboBox
+                                            x:Name="ComboVidaUtil"
+                                            HorizontalAlignment="Stretch"
+                                            SelectedItem="{Binding VidaUtil, Mode=TwoWay}" />
+                                    </StackPanel>
+                                    <StackPanel Grid.Row="5">
+                                        <TextBlock Style="{StaticResource EtiquetaCampoStyle}" Text="Precio" />
+                                        <TextBox
+                                            x:Name="CajaPrecio"
+                                            PlaceholderText="Sin precio"
+                                            InputScope="Number" />
+                                        <TextBlock
+                                            Margin="0,4,0,0"
+                                            FontSize="12"
+                                            Opacity="0.65"
+                                            Text="Al guardar la ficha queda en el historial de precios."
+                                            TextWrapping="Wrap" />
+                                    </StackPanel>
+                                    <StackPanel Grid.Row="5" Grid.Column="1">
+                                        <TextBlock Style="{StaticResource EtiquetaCampoStyle}" Text="Moneda" />
+                                        <ComboBox
+                                            x:Name="ComboMonedaPrecio"
+                                            HorizontalAlignment="Stretch"
+                                            VerticalAlignment="Top" />
+                                    </StackPanel>
+                                    <StackPanel Grid.Row="6" Grid.ColumnSpan="2">
+                                        <TextBlock Style="{StaticResource EtiquetaCampoStyle}" Text="Descripción" />
+                                        <TextBox
+                                            AcceptsReturn="True"
+                                            MinHeight="88"
+                                            Text="{Binding Descripcion, Mode=TwoWay}"
+                                            TextWrapping="Wrap" />
+                                    </StackPanel>
+                                    </Grid>
+
+                                    <Grid x:Name="PanelClinica" Margin="0,4,0,0" Visibility="Collapsed">
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="*" />
                                             <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="*" />
                                         </Grid.ColumnDefinitions>
-                                        <Grid.RowDefinitions>
-                                            <RowDefinition Height="Auto" />
-                                            <RowDefinition Height="180" />
-                                            <RowDefinition Height="Auto" />
-                                        </Grid.RowDefinitions>
-                                        <TextBlock Style="{StaticResource EtiquetaCampoStyle}" Text="Descripción" />
-                                        <TextBlock
+                                        <ToggleSwitch
+                                            HorizontalAlignment="Center"
+                                            Header="Estéril"
+                                            IsOn="{Binding Esteril, Mode=TwoWay}" />
+                                        <ToggleSwitch
                                             Grid.Column="1"
-                                            Style="{StaticResource EtiquetaCampoStyle}"
-                                            Text="Imagen del material" />
-                                        <TextBox
-                                            Grid.Row="1"
-                                            AcceptsReturn="True"
-                                            MinHeight="180"
-                                            Text="{Binding Descripcion, Mode=TwoWay}"
-                                            TextWrapping="Wrap"
-                                            VerticalAlignment="Stretch" />
-                                        <Border
-                                            Grid.Row="1"
-                                            Grid.Column="1"
-                                            HorizontalAlignment="Stretch"
-                                            VerticalAlignment="Stretch"
-                                            Padding="6"
-                                            CornerRadius="8">
-                                            <Border.Background>
-                                                <SolidColorBrush Color="{ThemeResource CardBackgroundFillColorDefault}" />
-                                            </Border.Background>
-                                            <Grid>
-                                                <TextBlock
-                                                    x:Name="TextoSinImagen"
-                                                    HorizontalAlignment="Center"
-                                                    VerticalAlignment="Center"
-                                                    Opacity="0.55"
-                                                    Text="Sin imagen adjunta"
-                                                    TextAlignment="Center"
-                                                    TextWrapping="Wrap" />
-                                                <Image
-                                                    x:Name="ImagenProducto"
-                                                    HorizontalAlignment="Center"
-                                                    VerticalAlignment="Center"
-                                                    Stretch="Uniform" />
-                                            </Grid>
-                                        </Border>
-                                        <StackPanel
-                                            Grid.Row="2"
-                                            Grid.Column="1"
-                                            Margin="0,8,0,0"
-                                            Orientation="Horizontal"
-                                            Spacing="8">
-                                            <Button Click="AdjuntarImagen_Click" Content="Adjuntar imagen" />
-                                            <Button
-                                                x:Name="BotonQuitarImagen"
-                                                Click="QuitarImagen_Click"
-                                                Content="Quitar"
-                                                Visibility="Collapsed" />
-                                        </StackPanel>
+                                            HorizontalAlignment="Center"
+                                            Header="Requiere refrigeración"
+                                            IsOn="{Binding RequiereRefrigeracion, Mode=TwoWay}" />
+                                        <ToggleSwitch
+                                            Grid.Column="2"
+                                            HorizontalAlignment="Center"
+                                            Header="Reutilizable"
+                                            IsOn="{Binding Reutilizable, Mode=TwoWay}" />
                                     </Grid>
-                                    <Grid
-                                        Grid.Row="5"
-                                        Grid.ColumnSpan="2"
-                                        ColumnSpacing="8"
-                                        RowSpacing="6">
+
+                                    <StackPanel x:Name="PanelOficina" Spacing="12" Visibility="Collapsed">
+                                        <TextBlock
+                                            Opacity="0.72"
+                                            Text="Ubicación, serie y mantenimiento del artículo."
+                                            TextWrapping="Wrap" />
+                                        <Grid ColumnSpacing="12" RowSpacing="12">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="*" />
+                                            </Grid.ColumnDefinitions>
+                                            <Grid.RowDefinitions>
+                                                <RowDefinition Height="Auto" />
+                                                <RowDefinition Height="Auto" />
+                                                <RowDefinition Height="Auto" />
+                                                <RowDefinition Height="Auto" />
+                                            </Grid.RowDefinitions>
+                                            <StackPanel>
+                                                <TextBlock Style="{StaticResource EtiquetaCampoStyle}" Text="Ubicación" />
+                                                <TextBox PlaceholderText="Recepción, archivo, administración..." Text="{Binding Ubicacion, Mode=TwoWay}" />
+                                            </StackPanel>
+                                            <StackPanel Grid.Column="1">
+                                                <TextBlock Style="{StaticResource EtiquetaCampoStyle}" Text="Número de serie" />
+                                                <TextBox Text="{Binding NumeroSerie, Mode=TwoWay}" />
+                                            </StackPanel>
+                                            <StackPanel Grid.Row="1">
+                                                <TextBlock Style="{StaticResource EtiquetaCampoStyle}" Text="Responsable" />
+                                                <TextBox Text="{Binding Responsable, Mode=TwoWay}" />
+                                            </StackPanel>
+                                            <StackPanel Grid.Row="1" Grid.Column="1">
+                                                <TextBlock Style="{StaticResource EtiquetaCampoStyle}" Text="Garantía (meses)" />
+                                                <NumberBox
+                                                    Minimum="0"
+                                                    SmallChange="1"
+                                                    SpinButtonPlacementMode="Compact"
+                                                    Value="{Binding GarantiaMeses, Mode=TwoWay}" />
+                                            </StackPanel>
+                                            <StackPanel Grid.Row="2">
+                                                <TextBlock Style="{StaticResource EtiquetaCampoStyle}" Text="Voltaje / alimentación" />
+                                                <TextBox Text="{Binding Voltaje, Mode=TwoWay}" />
+                                            </StackPanel>
+                                            <StackPanel Grid.Row="2" Grid.Column="1">
+                                                <TextBlock Style="{StaticResource EtiquetaCampoStyle}" Text="Periodicidad de mantenimiento" />
+                                                <TextBox Text="{Binding PeriodicidadMantenimiento, Mode=TwoWay}" />
+                                            </StackPanel>
+                                            <StackPanel Grid.Row="3">
+                                                <TextBlock Style="{StaticResource EtiquetaCampoStyle}" Text="Compatibilidad" />
+                                                <TextBox
+                                                    AcceptsReturn="True"
+                                                    MinHeight="56"
+                                                    Text="{Binding Compatibilidad, Mode=TwoWay}"
+                                                    TextWrapping="Wrap" />
+                                            </StackPanel>
+                                            <StackPanel Grid.Row="3" Grid.Column="1" VerticalAlignment="Top">
+                                                <ToggleSwitch Header="Requiere mantenimiento" IsOn="{Binding RequiereMantenimiento, Mode=TwoWay}" />
+                                            </StackPanel>
+                                        </Grid>
+                                    </StackPanel>
+
+                                    <StackPanel x:Name="PanelLimpieza" Spacing="12" Visibility="Collapsed">
+                                        <TextBlock
+                                            Opacity="0.72"
+                                            Text="Principio activo, dilución y hoja de seguridad."
+                                            TextWrapping="Wrap" />
+                                        <Grid ColumnSpacing="12" RowSpacing="12">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="*" />
+                                            </Grid.ColumnDefinitions>
+                                            <Grid.RowDefinitions>
+                                                <RowDefinition Height="Auto" />
+                                                <RowDefinition Height="Auto" />
+                                                <RowDefinition Height="Auto" />
+                                                <RowDefinition Height="Auto" />
+                                                <RowDefinition Height="Auto" />
+                                                <RowDefinition Height="Auto" />
+                                            </Grid.RowDefinitions>
+                                            <StackPanel>
+                                                <TextBlock Style="{StaticResource EtiquetaCampoStyle}" Text="Principio activo" />
+                                                <TextBox Text="{Binding PrincipioActivo, Mode=TwoWay}" />
+                                            </StackPanel>
+                                            <StackPanel Grid.Column="1">
+                                                <TextBlock Style="{StaticResource EtiquetaCampoStyle}" Text="Concentración" />
+                                                <TextBox PlaceholderText="Ej. 5%, 70%, concentrado" Text="{Binding Concentracion, Mode=TwoWay}" />
+                                            </StackPanel>
+                                            <StackPanel Grid.Row="1">
+                                                <TextBlock Style="{StaticResource EtiquetaCampoStyle}" Text="pH" />
+                                                <TextBox Text="{Binding Ph, Mode=TwoWay}" />
+                                            </StackPanel>
+                                            <StackPanel Grid.Row="1" Grid.Column="1">
+                                                <TextBlock Style="{StaticResource EtiquetaCampoStyle}" Text="Tiempo de contacto" />
+                                                <TextBox Text="{Binding TiempoContacto, Mode=TwoWay}" />
+                                            </StackPanel>
+                                            <StackPanel Grid.Row="2">
+                                                <TextBlock Style="{StaticResource EtiquetaCampoStyle}" Text="Dilución" />
+                                                <TextBox Text="{Binding Dilucion, Mode=TwoWay}" />
+                                            </StackPanel>
+                                            <StackPanel Grid.Row="2" Grid.Column="1">
+                                                <TextBlock Style="{StaticResource EtiquetaCampoStyle}" Text="Peligrosidad" />
+                                                <ComboBox
+                                                    x:Name="ComboPeligrosidad"
+                                                    HorizontalAlignment="Stretch"
+                                                    SelectedItem="{Binding Peligrosidad, Mode=TwoWay}" />
+                                            </StackPanel>
+                                            <StackPanel Grid.Row="3">
+                                                <TextBlock Style="{StaticResource EtiquetaCampoStyle}" Text="Hoja de seguridad (SDS)" />
+                                                <TextBox Text="{Binding HojaSeguridad, Mode=TwoWay}" />
+                                            </StackPanel>
+                                            <StackPanel Grid.Row="3" Grid.Column="1">
+                                                <TextBlock Style="{StaticResource EtiquetaCampoStyle}" Text="EPP requerido" />
+                                                <TextBox Text="{Binding EppRequerido, Mode=TwoWay}" />
+                                            </StackPanel>
+                                            <StackPanel Grid.Row="4" Grid.ColumnSpan="2">
+                                                <TextBlock Style="{StaticResource EtiquetaCampoStyle}" Text="Superficies de uso" />
+                                                <TextBox
+                                                    AcceptsReturn="True"
+                                                    MinHeight="48"
+                                                    Text="{Binding SuperficiesUso, Mode=TwoWay}"
+                                                    TextWrapping="Wrap" />
+                                            </StackPanel>
+                                            <StackPanel Grid.Row="5">
+                                                <TextBlock Style="{StaticResource EtiquetaCampoStyle}" Text="Materiales compatibles" />
+                                                <TextBox
+                                                    AcceptsReturn="True"
+                                                    MinHeight="48"
+                                                    Text="{Binding MaterialesCompatibles, Mode=TwoWay}"
+                                                    TextWrapping="Wrap" />
+                                            </StackPanel>
+                                            <StackPanel Grid.Row="5" Grid.Column="1">
+                                                <TextBlock Style="{StaticResource EtiquetaCampoStyle}" Text="Residuo generado" />
+                                                <TextBox
+                                                    AcceptsReturn="True"
+                                                    MinHeight="48"
+                                                    Text="{Binding ResiduoGenerado, Mode=TwoWay}"
+                                                    TextWrapping="Wrap" />
+                                            </StackPanel>
+                                        </Grid>
+                                    </StackPanel>
+
+                                    <Grid ColumnSpacing="8" RowSpacing="6">
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="1.2*" />
                                             <ColumnDefinition Width="Auto" />
@@ -501,90 +616,6 @@
                                                 TextWrapping="Wrap" />
                                         </Button>
                                     </Grid>
-                                </Grid>
-                                </StackPanel>
-                            </ScrollViewer>
-                        </PivotItem>
-
-                        <PivotItem Header="Técnicas">
-                            <ScrollViewer>
-                                <StackPanel Padding="4,8,16,16" Spacing="8">
-                                    <TextBlock
-                                        Opacity="0.72"
-                                        Text="Marca, modelo, existencias y condiciones de uso."
-                                        TextWrapping="Wrap" />
-                                    <Grid ColumnSpacing="12" RowSpacing="12">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*" />
-                                        <ColumnDefinition Width="*" />
-                                    </Grid.ColumnDefinitions>
-                                    <Grid.RowDefinitions>
-                                        <RowDefinition Height="Auto" />
-                                        <RowDefinition Height="Auto" />
-                                        <RowDefinition Height="Auto" />
-                                        <RowDefinition Height="Auto" />
-                                        <RowDefinition Height="Auto" />
-                                    </Grid.RowDefinitions>
-                                    <StackPanel>
-                                        <TextBlock Style="{StaticResource EtiquetaCampoStyle}" Text="Marca" />
-                                        <TextBox Text="{Binding Marca, Mode=TwoWay}" />
-                                    </StackPanel>
-                                    <StackPanel Grid.Column="1">
-                                        <TextBlock Style="{StaticResource EtiquetaCampoStyle}" Text="Modelo" />
-                                        <TextBox Text="{Binding Modelo, Mode=TwoWay}" />
-                                    </StackPanel>
-                                    <StackPanel Grid.Row="1">
-                                        <TextBlock Style="{StaticResource EtiquetaCampoStyle}" Text="Normas / certificaciones" />
-                                        <TextBox PlaceholderText="ISO, CE, COFEPRIS, FDA..." Text="{Binding NormasCertificaciones, Mode=TwoWay}" />
-                                    </StackPanel>
-                                    <StackPanel Grid.Row="1" Grid.Column="1">
-                                        <TextBlock Style="{StaticResource EtiquetaCampoStyle}" Text="Vida útil" />
-                                        <ComboBox
-                                            x:Name="ComboVidaUtil"
-                                            HorizontalAlignment="Stretch"
-                                            SelectedItem="{Binding VidaUtil, Mode=TwoWay}" />
-                                    </StackPanel>
-                                    <StackPanel Grid.Row="2">
-                                        <TextBlock Style="{StaticResource EtiquetaCampoStyle}" Text="Existencia" />
-                                        <NumberBox
-                                            Minimum="0"
-                                            SmallChange="1"
-                                            SpinButtonPlacementMode="Compact"
-                                            Value="{Binding Existencia, Mode=TwoWay}" />
-                                    </StackPanel>
-                                    <StackPanel Grid.Row="2" Grid.Column="1">
-                                        <TextBlock Style="{StaticResource EtiquetaCampoStyle}" Text="Stock mínimo" />
-                                        <NumberBox
-                                            Minimum="0"
-                                            SmallChange="1"
-                                            SpinButtonPlacementMode="Compact"
-                                            Value="{Binding StockMinimo, Mode=TwoWay}" />
-                                    </StackPanel>
-                                    <StackPanel Grid.Row="3" Grid.ColumnSpan="2">
-                                        <TextBlock Style="{StaticResource EtiquetaCampoStyle}" Text="Especificaciones técnicas" />
-                                        <TextBox
-                                            AcceptsReturn="True"
-                                            MinHeight="64"
-                                            Text="{Binding Especificaciones, Mode=TwoWay}"
-                                            TextWrapping="Wrap" />
-                                    </StackPanel>
-                                    <StackPanel Grid.Row="4">
-                                        <TextBlock Style="{StaticResource EtiquetaCampoStyle}" Text="Condiciones de almacenamiento" />
-                                        <TextBox
-                                            AcceptsReturn="True"
-                                            MinHeight="56"
-                                            Text="{Binding CondicionesAlmacenamiento, Mode=TwoWay}"
-                                            TextWrapping="Wrap" />
-                                    </StackPanel>
-                                    <StackPanel Grid.Row="4" Grid.Column="1">
-                                        <TextBlock Style="{StaticResource EtiquetaCampoStyle}" Text="Instrucciones de uso" />
-                                        <TextBox
-                                            AcceptsReturn="True"
-                                            MinHeight="56"
-                                            Text="{Binding InstruccionesUso, Mode=TwoWay}"
-                                            TextWrapping="Wrap" />
-                                    </StackPanel>
-                                </Grid>
                                 </StackPanel>
                             </ScrollViewer>
                         </PivotItem>
@@ -594,7 +625,7 @@
                                 <StackPanel Padding="4,8,16,16" Spacing="8">
                                     <TextBlock
                                         Opacity="0.72"
-                                        Text="Origen del material: fabricante, país, proveedor y lotes con su caducidad."
+                                        Text="Origen del material: fabricante, país y lotes con su caducidad."
                                         TextWrapping="Wrap" />
                                     <Grid ColumnSpacing="12" RowSpacing="12">
                                     <Grid.ColumnDefinitions>
@@ -642,7 +673,7 @@
                                         <TextBlock Style="{StaticResource EtiquetaCampoStyle}" Text="Fecha de adquisición" />
                                         <CalendarDatePicker
                                             HorizontalAlignment="Stretch"
-                                            Date="{Binding FechaAdquisicion, Mode=TwoWay}" />
+                                            Date="{Binding FechaAdquisicion, Mode=TwoWay, Converter={StaticResource FechaCalendarioConverter}}" />
                                     </StackPanel>
                                     <StackPanel Grid.Row="3" Grid.Column="1">
                                         <TextBlock Style="{StaticResource EtiquetaCampoStyle}" Text="Registro sanitario" />
@@ -652,7 +683,7 @@
                                     <TextBlock
                                         Margin="0,8,0,0"
                                         Opacity="0.72"
-                                        Text="Cada lote tiene su cantidad y fecha de caducidad. La existencia de la ficha es la suma. Si hay un solo lote, puede ajustar la cantidad también en Existencia."
+                                        Text="Cada lote tiene su cantidad y fecha de caducidad. La existencia del producto es la suma de estos lotes."
                                         TextWrapping="Wrap" />
                                     <Button Click="AgregarPartida_Click" Content="Agregar lote / caducidad" />
                                     <ItemsControl x:Name="ListaPartidas">
@@ -670,7 +701,7 @@
                                                         Grid.Column="1"
                                                         Header="Caducidad"
                                                         HorizontalAlignment="Stretch"
-                                                        Date="{Binding FechaCaducidad, Mode=TwoWay}" />
+                                                        Date="{Binding FechaCaducidad, Mode=TwoWay, Converter={StaticResource FechaCalendarioConverter}}" />
                                                     <NumberBox
                                                         Grid.Column="2"
                                                         Header="Cantidad"
@@ -687,277 +718,14 @@
                                             </DataTemplate>
                                         </ItemsControl.ItemTemplate>
                                     </ItemsControl>
-                                </StackPanel>
-                            </ScrollViewer>
-                        </PivotItem>
-
-                        <PivotItem x:Name="PivotArea" Header="Área">
-                            <Grid>
-                            <ScrollViewer x:Name="PanelClinica" Visibility="Collapsed">
-                                <StackPanel Padding="4,8,16,16" Spacing="8">
                                     <TextBlock
-                                        Opacity="0.72"
-                                        Text="Uso clínico, esterilidad y riesgo biológico. Los vencimientos por lote están en Procedencia."
-                                        TextWrapping="Wrap" />
-                                    <Grid ColumnSpacing="12" RowSpacing="12">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*" />
-                                        <ColumnDefinition Width="*" />
-                                    </Grid.ColumnDefinitions>
-                                    <Grid.RowDefinitions>
-                                        <RowDefinition Height="Auto" />
-                                        <RowDefinition Height="Auto" />
-                                        <RowDefinition Height="Auto" />
-                                        <RowDefinition Height="Auto" />
-                                        <RowDefinition Height="Auto" />
-                                    </Grid.RowDefinitions>
-                                    <StackPanel>
-                                        <TextBlock Style="{StaticResource EtiquetaCampoStyle}" Text="Uso clínico" />
-                                        <TextBox Text="{Binding UsoClinico, Mode=TwoWay}" />
-                                    </StackPanel>
-                                    <StackPanel Grid.Column="1">
-                                        <TextBlock Style="{StaticResource EtiquetaCampoStyle}" Text="Procedimiento" />
-                                        <ComboBox
-                                            x:Name="ComboProcedimiento"
-                                            HorizontalAlignment="Stretch"
-                                            SelectedItem="{Binding Procedimiento, Mode=TwoWay}" />
-                                    </StackPanel>
-                                    <StackPanel Grid.Row="1">
-                                        <TextBlock Style="{StaticResource EtiquetaCampoStyle}" Text="Riesgo biológico" />
-                                        <ComboBox
-                                            x:Name="ComboRiesgo"
-                                            HorizontalAlignment="Stretch"
-                                            SelectedItem="{Binding RiesgoBiologico, Mode=TwoWay}" />
-                                    </StackPanel>
-                                    <StackPanel Grid.Row="1" Grid.Column="1">
-                                        <TextBlock Style="{StaticResource EtiquetaCampoStyle}" Text="Temperatura de almacenamiento" />
-                                        <ComboBox
-                                            x:Name="ComboTemperatura"
-                                            HorizontalAlignment="Stretch"
-                                            PlaceholderText="Ej. 15–25 °C o 2–8 °C"
-                                            SelectedItem="{Binding TemperaturaAlmacenamiento, Mode=TwoWay}" />
-                                    </StackPanel>
-                                    <StackPanel Grid.Row="2">
-                                        <TextBlock Style="{StaticResource EtiquetaCampoStyle}" Text="Caducidad de referencia" />
-                                        <TextBlock Opacity="0.8" Text="{Binding FechaCaducidadTexto}" TextWrapping="Wrap" />
-                                        <TextBlock
-                                            Margin="0,4,0,0"
-                                            Opacity="0.6"
-                                            Text="Los lotes y fechas se editan en la pestaña Procedencia."
-                                            TextWrapping="Wrap" />
-                                    </StackPanel>
-                                    <StackPanel Grid.Row="2" Grid.Column="1" Spacing="8">
-                                        <ToggleSwitch Header="Estéril" IsOn="{Binding Esteril, Mode=TwoWay}" />
-                                        <ToggleSwitch Header="Requiere refrigeración" IsOn="{Binding RequiereRefrigeracion, Mode=TwoWay}" />
-                                        <ToggleSwitch Header="Reutilizable" IsOn="{Binding Reutilizable, Mode=TwoWay}" />
-                                    </StackPanel>
-                                    <StackPanel Grid.Row="3" Grid.ColumnSpan="2">
-                                        <TextBlock Style="{StaticResource EtiquetaCampoStyle}" Text="Composición" />
-                                        <TextBox
-                                            AcceptsReturn="True"
-                                            MinHeight="56"
-                                            Text="{Binding Composicion, Mode=TwoWay}"
-                                            TextWrapping="Wrap" />
-                                    </StackPanel>
-                                    <StackPanel Grid.Row="4" Grid.ColumnSpan="2">
-                                        <TextBlock Style="{StaticResource EtiquetaCampoStyle}" Text="Contraindicaciones / precauciones" />
-                                        <TextBox
-                                            AcceptsReturn="True"
-                                            MinHeight="56"
-                                            Text="{Binding Contraindicaciones, Mode=TwoWay}"
-                                            TextWrapping="Wrap" />
-                                    </StackPanel>
-                                </Grid>
-                                </StackPanel>
-                            </ScrollViewer>
-
-                            <ScrollViewer x:Name="PanelOficina" Visibility="Collapsed">
-                                <StackPanel Padding="4,8,16,16" Spacing="8">
-                                    <TextBlock
-                                        Opacity="0.72"
-                                        Text="Ubicación, serie, responsable y mantenimiento del artículo."
-                                        TextWrapping="Wrap" />
-                                    <Grid ColumnSpacing="12" RowSpacing="12">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*" />
-                                        <ColumnDefinition Width="*" />
-                                    </Grid.ColumnDefinitions>
-                                    <Grid.RowDefinitions>
-                                        <RowDefinition Height="Auto" />
-                                        <RowDefinition Height="Auto" />
-                                        <RowDefinition Height="Auto" />
-                                        <RowDefinition Height="Auto" />
-                                    </Grid.RowDefinitions>
-                                    <StackPanel>
-                                        <TextBlock Style="{StaticResource EtiquetaCampoStyle}" Text="Ubicación" />
-                                        <TextBox PlaceholderText="Recepción, archivo, administración..." Text="{Binding Ubicacion, Mode=TwoWay}" />
-                                    </StackPanel>
-                                    <StackPanel Grid.Column="1">
-                                        <TextBlock Style="{StaticResource EtiquetaCampoStyle}" Text="Número de serie" />
-                                        <TextBox Text="{Binding NumeroSerie, Mode=TwoWay}" />
-                                    </StackPanel>
-                                    <StackPanel Grid.Row="1">
-                                        <TextBlock Style="{StaticResource EtiquetaCampoStyle}" Text="Responsable" />
-                                        <TextBox Text="{Binding Responsable, Mode=TwoWay}" />
-                                    </StackPanel>
-                                    <StackPanel Grid.Row="1" Grid.Column="1">
-                                        <TextBlock Style="{StaticResource EtiquetaCampoStyle}" Text="Garantía (meses)" />
-                                        <NumberBox
-                                            Minimum="0"
-                                            SmallChange="1"
-                                            SpinButtonPlacementMode="Compact"
-                                            Value="{Binding GarantiaMeses, Mode=TwoWay}" />
-                                    </StackPanel>
-                                    <StackPanel Grid.Row="2">
-                                        <TextBlock Style="{StaticResource EtiquetaCampoStyle}" Text="Voltaje / alimentación" />
-                                        <TextBox Text="{Binding Voltaje, Mode=TwoWay}" />
-                                    </StackPanel>
-                                    <StackPanel Grid.Row="2" Grid.Column="1">
-                                        <TextBlock Style="{StaticResource EtiquetaCampoStyle}" Text="Periodicidad de mantenimiento" />
-                                        <TextBox Text="{Binding PeriodicidadMantenimiento, Mode=TwoWay}" />
-                                    </StackPanel>
-                                    <StackPanel Grid.Row="3">
-                                        <TextBlock Style="{StaticResource EtiquetaCampoStyle}" Text="Compatibilidad" />
-                                        <TextBox
-                                            AcceptsReturn="True"
-                                            MinHeight="56"
-                                            Text="{Binding Compatibilidad, Mode=TwoWay}"
-                                            TextWrapping="Wrap" />
-                                    </StackPanel>
-                                    <StackPanel Grid.Row="3" Grid.Column="1" VerticalAlignment="Top">
-                                        <ToggleSwitch Header="Requiere mantenimiento" IsOn="{Binding RequiereMantenimiento, Mode=TwoWay}" />
-                                    </StackPanel>
-                                </Grid>
-                                </StackPanel>
-                            </ScrollViewer>
-
-                            <ScrollViewer x:Name="PanelLimpieza" Visibility="Collapsed">
-                                <StackPanel Padding="4,8,16,16" Spacing="8">
-                                    <TextBlock
-                                        Opacity="0.72"
-                                        Text="Principio activo, dilución, peligrosidad y hoja de seguridad."
-                                        TextWrapping="Wrap" />
-                                    <Grid ColumnSpacing="12" RowSpacing="12">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*" />
-                                        <ColumnDefinition Width="*" />
-                                    </Grid.ColumnDefinitions>
-                                    <Grid.RowDefinitions>
-                                        <RowDefinition Height="Auto" />
-                                        <RowDefinition Height="Auto" />
-                                        <RowDefinition Height="Auto" />
-                                        <RowDefinition Height="Auto" />
-                                        <RowDefinition Height="Auto" />
-                                        <RowDefinition Height="Auto" />
-                                    </Grid.RowDefinitions>
-                                    <StackPanel>
-                                        <TextBlock Style="{StaticResource EtiquetaCampoStyle}" Text="Principio activo" />
-                                        <TextBox Text="{Binding PrincipioActivo, Mode=TwoWay}" />
-                                    </StackPanel>
-                                    <StackPanel Grid.Column="1">
-                                        <TextBlock Style="{StaticResource EtiquetaCampoStyle}" Text="Concentración" />
-                                        <TextBox PlaceholderText="Ej. 5%, 70%, concentrado" Text="{Binding Concentracion, Mode=TwoWay}" />
-                                    </StackPanel>
-                                    <StackPanel Grid.Row="1">
-                                        <TextBlock Style="{StaticResource EtiquetaCampoStyle}" Text="pH" />
-                                        <TextBox Text="{Binding Ph, Mode=TwoWay}" />
-                                    </StackPanel>
-                                    <StackPanel Grid.Row="1" Grid.Column="1">
-                                        <TextBlock Style="{StaticResource EtiquetaCampoStyle}" Text="Tiempo de contacto" />
-                                        <TextBox Text="{Binding TiempoContacto, Mode=TwoWay}" />
-                                    </StackPanel>
-                                    <StackPanel Grid.Row="2">
-                                        <TextBlock Style="{StaticResource EtiquetaCampoStyle}" Text="Dilución" />
-                                        <TextBox Text="{Binding Dilucion, Mode=TwoWay}" />
-                                    </StackPanel>
-                                    <StackPanel Grid.Row="2" Grid.Column="1">
-                                        <TextBlock Style="{StaticResource EtiquetaCampoStyle}" Text="Peligrosidad" />
-                                        <ComboBox
-                                            x:Name="ComboPeligrosidad"
-                                            HorizontalAlignment="Stretch"
-                                            SelectedItem="{Binding Peligrosidad, Mode=TwoWay}" />
-                                    </StackPanel>
-                                    <StackPanel Grid.Row="3">
-                                        <TextBlock Style="{StaticResource EtiquetaCampoStyle}" Text="Hoja de seguridad (SDS)" />
-                                        <TextBox Text="{Binding HojaSeguridad, Mode=TwoWay}" />
-                                    </StackPanel>
-                                    <StackPanel Grid.Row="3" Grid.Column="1">
-                                        <TextBlock Style="{StaticResource EtiquetaCampoStyle}" Text="EPP requerido" />
-                                        <TextBox Text="{Binding EppRequerido, Mode=TwoWay}" />
-                                    </StackPanel>
-                                    <StackPanel Grid.Row="4" Grid.ColumnSpan="2">
-                                        <TextBlock Style="{StaticResource EtiquetaCampoStyle}" Text="Superficies de uso" />
-                                        <TextBox
-                                            AcceptsReturn="True"
-                                            MinHeight="48"
-                                            Text="{Binding SuperficiesUso, Mode=TwoWay}"
-                                            TextWrapping="Wrap" />
-                                    </StackPanel>
-                                    <StackPanel Grid.Row="5">
-                                        <TextBlock Style="{StaticResource EtiquetaCampoStyle}" Text="Materiales compatibles" />
-                                        <TextBox
-                                            AcceptsReturn="True"
-                                            MinHeight="48"
-                                            Text="{Binding MaterialesCompatibles, Mode=TwoWay}"
-                                            TextWrapping="Wrap" />
-                                    </StackPanel>
-                                    <StackPanel Grid.Row="5" Grid.Column="1">
-                                        <TextBlock Style="{StaticResource EtiquetaCampoStyle}" Text="Residuo generado" />
-                                        <TextBox
-                                            AcceptsReturn="True"
-                                            MinHeight="48"
-                                            Text="{Binding ResiduoGenerado, Mode=TwoWay}"
-                                            TextWrapping="Wrap" />
-                                    </StackPanel>
-                                </Grid>
-                                </StackPanel>
-                            </ScrollViewer>
-                            </Grid>
-                        </PivotItem>
-
-                        <PivotItem Header="Características">
-                            <ScrollViewer>
-                                <StackPanel Padding="4,8,16,16" Spacing="8">
-                                    <TextBlock
-                                        Opacity="0.72"
-                                        Text="Hasta 20 características adicionales por producto. Se guardan en un archivo aparte y se incluyen en la búsqueda del catálogo."
-                                        TextWrapping="Wrap" />
-                                    <Button Click="AgregarCaracteristica_Click" Content="Agregar característica" />
-                                    <ItemsControl x:Name="ListaCaracteristicas">
-                                        <ItemsControl.ItemTemplate>
-                                            <DataTemplate x:DataType="models:CaracteristicaProducto">
-                                                <Grid ColumnSpacing="8" Margin="0,0,0,8">
-                                                    <Grid.ColumnDefinitions>
-                                                        <ColumnDefinition Width="*" />
-                                                        <ColumnDefinition Width="*" />
-                                                        <ColumnDefinition Width="Auto" />
-                                                    </Grid.ColumnDefinitions>
-                                                    <TextBox Header="Nombre" Text="{Binding Nombre, Mode=TwoWay}" />
-                                                    <TextBox Grid.Column="1" Header="Valor" Text="{Binding Valor, Mode=TwoWay}" />
-                                                    <Button
-                                                        Grid.Column="2"
-                                                        VerticalAlignment="Bottom"
-                                                        Click="QuitarCaracteristica_Click"
-                                                        Content="Quitar" />
-                                                </Grid>
-                                            </DataTemplate>
-                                        </ItemsControl.ItemTemplate>
-                                    </ItemsControl>
-                                </StackPanel>
-                            </ScrollViewer>
-                        </PivotItem>
-
-                        <PivotItem Header="Notas">
-                            <ScrollViewer>
-                                <StackPanel Padding="4,8,16,16" Spacing="8">
-                                    <TextBlock
-                                        Opacity="0.72"
-                                        Text="Notas internas, alertas de lote o acuerdos con el proveedor."
-                                        TextWrapping="Wrap" />
+                                        Margin="0,8,0,0"
+                                        Style="{StaticResource EtiquetaCampoStyle}"
+                                        Text="Notas" />
                                     <TextBox
                                         AcceptsReturn="True"
-                                        MinHeight="160"
-                                        PlaceholderText="Escriba observaciones de la ficha"
+                                        MinHeight="120"
+                                        PlaceholderText="Observaciones de la ficha"
                                         Text="{Binding Observaciones, Mode=TwoWay}"
                                         TextWrapping="Wrap" />
                                 </StackPanel>

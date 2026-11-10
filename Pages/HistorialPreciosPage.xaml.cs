@@ -17,11 +17,21 @@ public sealed partial class HistorialPreciosPage : Page, IVistaInventario
     private bool _actualizandoFiltros;
     private Guid? _fichaSeleccionada;
     private Guid? _precioEnEdicion;
+    private bool _ajustandoMonto;
+    private bool _montoEditado;
+    private bool _ignorarClicLista;
     private readonly DispatcherTimer _relojBusqueda = new() { Interval = TimeSpan.FromMilliseconds(180) };
 
     public HistorialPreciosPage()
     {
         InitializeComponent();
+        CajaMonto.ValueChanged += (_, _) =>
+        {
+            if (!_ajustandoMonto)
+            {
+                _montoEditado = true;
+            }
+        };
         _relojBusqueda.Tick += (_, _) =>
         {
             _relojBusqueda.Stop();
@@ -46,7 +56,7 @@ public sealed partial class HistorialPreciosPage : Page, IVistaInventario
             MonedaPrecio.Etiqueta(MonedaPrecio.Dolares)
         };
         ComboMoneda.SelectedIndex = 0;
-        FechaPrecio.Date = DateTimeOffset.Now;
+        FechaPrecio.Date = FechaCalendario.ParaPickerObligatorio(DateTimeOffset.Now);
         PrepararFichaNavegada(e.Parameter);
         _actualizandoFiltros = false;
         Refrescar();
@@ -191,6 +201,7 @@ public sealed partial class HistorialPreciosPage : Page, IVistaInventario
                 };
             })
             .ToList();
+        _ignorarClicLista = true;
         ListaProductos.ItemsSource = _visibles;
         ResumenLista.Text = _visibles.Count == 1
             ? "1 producto. Elija uno para ver su historial de precios."
@@ -208,9 +219,11 @@ public sealed partial class HistorialPreciosPage : Page, IVistaInventario
             {
                 ListaProductos.SelectedItem = item;
                 ListaProductos.ScrollIntoView(item);
-                MostrarProducto(item.Ficha);
+                MostrarProducto(item.Ficha, cargarNube: false);
             }
         }
+
+        _ignorarClicLista = false;
     }
 
     private void CargarOpcionesArea()
@@ -337,21 +350,65 @@ public sealed partial class HistorialPreciosPage : Page, IVistaInventario
             return;
         }
 
+        if (_ignorarClicLista)
+        {
+            _ignorarClicLista = false;
+            return;
+        }
+
         _fichaSeleccionada = item.Ficha.Id;
         ResetearFormulario();
-        MostrarProducto(item.Ficha);
+        MostrarProducto(item.Ficha, cargarNube: true);
     }
 
-    private void MostrarProducto(FichaTecnica ficha)
+    private void MostrarProducto(FichaTecnica ficha, bool cargarNube)
     {
-        PanelVacio.Visibility = Visibility.Collapsed;
-        PanelProducto.Visibility = Visibility.Visible;
-        PanelFormulario.Visibility = Visibility.Visible;
-        ListaPrecios.Visibility = Visibility.Visible;
-        TituloProducto.Text = string.IsNullOrWhiteSpace(ficha.Nombre) ? ficha.Codigo : ficha.Nombre;
-        SubtituloProducto.Text = string.Join(" · ", new[] { ficha.Codigo, ficha.AreaTitulo, ficha.Resumen }
-            .Where(t => !string.IsNullOrWhiteSpace(t)));
-        CargarPrecios(ficha.Id);
+        try
+        {
+            PanelVacio.Visibility = Visibility.Collapsed;
+            PanelProducto.Visibility = Visibility.Visible;
+            PanelFormulario.Visibility = Visibility.Visible;
+            ListaPrecios.Visibility = Visibility.Visible;
+            TituloProducto.Text = string.IsNullOrWhiteSpace(ficha.Nombre) ? ficha.Codigo : ficha.Nombre;
+            SubtituloProducto.Text = string.Join(" · ", new[] { ficha.Codigo, ficha.AreaTitulo, ficha.Resumen }
+                .Where(t => !string.IsNullOrWhiteSpace(t)));
+            CargarPrecios(ficha.Id);
+            if (cargarNube)
+            {
+                _ = CompletarHistorialAsync(ficha);
+            }
+        }
+        catch (Exception ex)
+        {
+            MostrarAviso($"No se pudo abrir el historial: {ex.Message}", InfoBarSeverity.Error);
+        }
+    }
+
+    private async Task CompletarHistorialAsync(FichaTecnica ficha)
+    {
+        var cola = DispatcherQueue;
+        bool cambio;
+        try
+        {
+            cambio = await ModulosNube.CompletarPreciosAsync(ficha.Id);
+        }
+        catch
+        {
+            return;
+        }
+
+        if (!cambio || _fichaSeleccionada != ficha.Id)
+        {
+            return;
+        }
+
+        cola.TryEnqueue(() =>
+        {
+            if (_fichaSeleccionada == ficha.Id)
+            {
+                CargarPrecios(ficha.Id);
+            }
+        });
     }
 
     private void CargarPrecios(Guid fichaId)
@@ -455,8 +512,8 @@ public sealed partial class HistorialPreciosPage : Page, IVistaInventario
     {
         _precioEnEdicion = null;
         TituloFormulario.Text = "Nuevo precio";
-        FechaPrecio.Date = DateTimeOffset.Now;
-        CajaMonto.Value = double.NaN;
+        FechaPrecio.Date = FechaCalendario.ParaPickerObligatorio(DateTimeOffset.Now);
+        PonerMonto(null);
         ComboMoneda.SelectedIndex = 0;
         CajaNota.Text = string.Empty;
         AvisoPrecios.IsOpen = false;
@@ -494,6 +551,14 @@ public sealed partial class HistorialPreciosPage : Page, IVistaInventario
         }
     }
 
+    private void PonerMonto(double? monto)
+    {
+        _ajustandoMonto = true;
+        _montoEditado = monto is not null;
+        CajaMonto.Value = monto ?? 0;
+        _ajustandoMonto = false;
+    }
+
     private void CancelarEdicion_Click(object sender, RoutedEventArgs e) => ResetearFormulario();
 
     private void GuardarPrecio_Click(object sender, RoutedEventArgs e)
@@ -503,7 +568,7 @@ public sealed partial class HistorialPreciosPage : Page, IVistaInventario
             return;
         }
 
-        if (double.IsNaN(CajaMonto.Value) || CajaMonto.Value < 0)
+        if (!_montoEditado || CajaMonto.Value < 0)
         {
             MostrarAviso("Indique un monto válido.", InfoBarSeverity.Warning);
             return;
@@ -540,8 +605,8 @@ public sealed partial class HistorialPreciosPage : Page, IVistaInventario
 
         _precioEnEdicion = precio.Id;
         TituloFormulario.Text = "Editar precio";
-        FechaPrecio.Date = precio.Fecha;
-        CajaMonto.Value = precio.Monto;
+        FechaPrecio.Date = FechaCalendario.ParaPickerObligatorio(precio.Fecha);
+        PonerMonto(precio.Monto);
         ComboMoneda.SelectedIndex = MonedaPrecio.EsDolar(precio.Moneda) ? 1 : 0;
         CajaNota.Text = precio.Nota;
         AvisoPrecios.IsOpen = false;
