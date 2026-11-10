@@ -78,6 +78,7 @@
                         <Grid Padding="4,10" ColumnSpacing="12">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="120" />
                                 <ColumnDefinition Width="200" />
                                 <ColumnDefinition Width="130" />
                                 <ColumnDefinition Width="Auto" />
@@ -86,9 +87,14 @@
                                 <TextBlock FontWeight="SemiBold" Text="{x:Bind Titulo}" />
                                 <TextBlock Opacity="0.72" Text="{x:Bind Lote}" TextWrapping="Wrap" />
                             </StackPanel>
-                            <TextBlock Grid.Column="1" VerticalAlignment="Center" Text="{x:Bind Motivo}" TextWrapping="Wrap" />
-                            <TextBlock Grid.Column="2" VerticalAlignment="Center" Text="{x:Bind Cuando}" />
-                            <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                            <TextBlock
+                                Grid.Column="1"
+                                VerticalAlignment="Center"
+                                FontWeight="SemiBold"
+                                Text="{x:Bind Cantidad}" />
+                            <TextBlock Grid.Column="2" VerticalAlignment="Center" Text="{x:Bind Motivo}" TextWrapping="Wrap" />
+                            <TextBlock Grid.Column="3" VerticalAlignment="Center" Text="{x:Bind Cuando}" />
+                            <StackPanel Grid.Column="4" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                                 <Button Click="Editar_Click" Content="Editar" Tag="{x:Bind Id}" />
                                 <Button Click="Revertir_Click" Content="Revertir" Tag="{x:Bind Id}" />
                             </StackPanel>

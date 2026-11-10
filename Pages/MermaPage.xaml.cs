@@ -206,7 +206,8 @@ public sealed class MermaItem
     {
         var cultura = CultureInfo.GetCultureInfo("es-PE");
         Id = merma.Id.ToString("D");
-        Titulo = $"{merma.Codigo}  {merma.Nombre} · {merma.Cantidad.ToString("0.##", cultura)} {merma.Unidad}".Trim();
+        Titulo = $"{merma.Codigo}  {merma.Nombre}".Trim();
+        Cantidad = $"{merma.Cantidad.ToString("0.##", cultura)} {merma.Unidad}".Trim();
         var caduca = merma.FechaCaducidad?.ToLocalTime().ToString("dd/MM/yyyy") ?? "Sin caducidad";
         var lote = string.IsNullOrWhiteSpace(merma.Lote) ? "Sin lote" : merma.Lote;
         Lote = $"{lote} · {caduca}";
@@ -216,6 +217,7 @@ public sealed class MermaItem
 
     public string Id { get; }
     public string Titulo { get; }
+    public string Cantidad { get; }
     public string Lote { get; }
     public string Motivo { get; }
     public string Cuando { get; }
